@@ -102,7 +102,19 @@ const paymentStatusPool = [
 ];
 
 function buildOrder(index) {
-  const hotel = hotels[index % hotels.length];
+  const hotel = hotels.length > 0 ? hotels[index % hotels.length] : {
+    id: `HTL-00${(index % 5) + 1}`,
+    name: 'Sample Reserved Hotel',
+    destination: 'Hammamet, Tunisia',
+    image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80',
+    availability: 'Available Directly',
+    mealPlan: 'Breakfast',
+    sharedPool: true,
+    minStay: 2,
+    notes: 'Standard booking terms apply.',
+    price: 250,
+    currency: 'TND',
+  };
   const customer = randomCustomer(index);
   const rooms = between(1, 3);
   const createdAt = addDays('2026-05-01', index * 2 + between(0, 2));
@@ -149,3 +161,4 @@ function buildOrder(index) {
 }
 
 export const initialOrders = Array.from({ length: 44 }, (_, i) => buildOrder(i));
+
