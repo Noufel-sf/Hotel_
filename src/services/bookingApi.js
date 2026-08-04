@@ -1,4 +1,4 @@
-const BASE_URL = 'https://delivero-nh1o.onrender.com';
+const BASE_URL = '/api';
 
 /**
  * Searches for cities via OpenAPI endpoint /bookings/city-search
