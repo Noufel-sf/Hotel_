@@ -22,6 +22,8 @@ export default function BookingFlowModal({ hotel, searchParams, onClose, onSubmi
   const [errors, setErrors] = useState({});
 
   if (!hotel) return null;
+  console.log(hotel);
+  
 
   const nights = nightsBetween(searchParams.checkIn, searchParams.checkOut);
   const guests = totalGuests(searchParams.rooms);
@@ -67,8 +69,8 @@ export default function BookingFlowModal({ hotel, searchParams, onClose, onSubmi
           <div className="ticket-stub text-white p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-white/60 text-xs uppercase tracking-widest">{hotel.destination}</p>
-                <h3 className="font-display text-2xl mt-1">{hotel.name}</h3>
+                <p className=" text-xs uppercase tracking-widest">{hotel.destination}</p>
+                <h3 className="font-display text-white text-2xl mt-1">{hotel.name}</h3>
               </div>
               <Badge className={availabilityStyles[hotel.availability] + ' border-white/20 !bg-white/10 !text-white'}>
                 {hotel.availability}
