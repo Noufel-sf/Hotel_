@@ -273,11 +273,9 @@ export default function HotelSearch() {
       <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-soft p-5 lg:p-6 mb-6">
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-ink-900/5">
           <span className="text-xs font-bold text-navy-900 tracking-wider uppercase flex items-center gap-1.5">
-            <Sparkles size={14} className="text-gold-400" /> Delivero IPRO API Search
+            <Sparkles size={14} className="text-gold-400" /> hotel agency
           </span>
-          <span className="text-xs text-ink-500 bg-navy-900/5 px-2.5 py-1 rounded-full font-mono">
-            POST /bookings/ipro/search
-          </span>
+        
         </div>
 
         <div className="grid lg:grid-cols-4 gap-4">
@@ -285,7 +283,7 @@ export default function HotelSearch() {
           <div className="relative lg:col-span-2" ref={suggestionsRef}>
             <label className="block">
               <span className="text-xs font-semibold text-ink-700 mb-1.5 block">
-                Destination (City Search Endpoint)
+                Destination
               </span>
               <div className="relative">
                 <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-300" />
@@ -390,12 +388,12 @@ export default function HotelSearch() {
             disabled={loading}
             className="flex items-center gap-2 bg-navy-900 text-white font-semibold px-6 py-3 rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50"
           >
-            <SearchIcon size={17} /> {loading ? 'Fetching API Offers...' : 'Search Hotels via API'}
+            <SearchIcon size={17} /> {loading ? 'Searching...' : 'Search Hotels'}
           </button>
         </div>
       </form>
 
-      {isError && (
+      {/* {isError && (
         <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-rose-800 text-sm">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           <div>
@@ -403,7 +401,7 @@ export default function HotelSearch() {
             <p>{error?.message || 'Failed to fetch hotel offers from server.'}</p>
           </div>
         </div>
-      )}
+      )} */}
 
       {(loading || hasSearched) && (
         <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -476,7 +474,7 @@ export default function HotelSearch() {
                   description={
                     appliedDestination
                       ? `No availability found for "${appliedDestination}" matching selected filters. Try resetting filters or adjusting search dates.`
-                      : 'Search for a city above to fetch real hotel availability from the Delivero API.'
+                      : 'Search for a city above to fetch real hotel availability .'
                   }
                 />
               </div>

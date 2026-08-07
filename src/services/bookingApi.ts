@@ -100,6 +100,34 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
   const isPromo = index % 3 === 0 || price < 250;
   const freeChild = index % 2 === 0 || offerInfo.toLowerCase().includes('enfant');
 
+  // Extract real etiquettes from raw API response object (supports array, object map, or string)
+  let rawEtiquettes = parsed.etiquettes || parsed.Etiquettes || parsed.etiquette || hotelObj.etiquettes || hotelObj.Etiquettes || parsed.etiquettesSaison;
+  let etiquettes: string[] = [];
+
+  if (rawEtiquettes && typeof rawEtiquettes === 'object') {
+    if (Array.isArray(rawEtiquettes)) {
+      etiquettes = rawEtiquettes
+        .map((item: any) => {
+          if (typeof item === 'string') return item;
+          return item?.libelle || item?._libelle || item?.label || item?.Name || '';
+        })
+        .filter((str: string) => Boolean(str && str.trim()));
+    } else {
+      // Handle object map e.g. { "1èr enfant -6 ans gratuit": { libelle: "..." }, "Sauver -12 %": { libelle: "..." } }
+      etiquettes = Object.entries(rawEtiquettes)
+        .map(([key, val]: [string, any]) => {
+          if (typeof val === 'string') return val;
+          if (val && typeof val === 'object') {
+            return val.libelle || val._libelle || val.label || key;
+          }
+          return key;
+        })
+        .filter((str: string) => Boolean(str && str.trim()));
+    }
+  } else if (typeof rawEtiquettes === 'string' && rawEtiquettes.trim()) {
+    etiquettes = [rawEtiquettes.trim()];
+  }
+
   const possibleServices = ['Famille', 'Bord de Mer', 'Thalasso & Spa', 'Sport & Loisir', 'Romance', 'Luxe', 'Petit Prix', 'Toboggan'];
   const services = [
     possibleServices[index % possibleServices.length],
@@ -126,6 +154,7 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     hasFreeCancellation,
     isPromo,
     freeChild,
+    etiquettes: etiquettes.length > 0 ? etiquettes : undefined,
     services,
     raw: parsed,
   };

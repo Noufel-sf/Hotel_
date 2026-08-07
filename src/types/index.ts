@@ -21,6 +21,7 @@ export interface Hotel {
   hasFreeCancellation?: boolean;
   isPromo?: boolean;
   freeChild?: boolean;
+  etiquettes?: string[];
   services?: string[];
   raw?: any;
 }
