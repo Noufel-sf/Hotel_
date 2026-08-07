@@ -205,3 +205,16 @@ export async function getIproAvailability(searchDetailsParams: SearchDetailsPara
     throw err;
   }
 }
+
+/**
+ * Service function to update hotel details / availability (used for mutations)
+ */
+export async function updateHotelDetails(hotelId: string, updates: Partial<Hotel>): Promise<{ success: boolean; hotelId: string; updates: Partial<Hotel> }> {
+  // Simulate network delay for server mutation
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  return {
+    success: true,
+    hotelId,
+    updates,
+  };
+}

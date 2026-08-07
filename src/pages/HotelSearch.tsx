@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, FormEvent, MouseEvent as ReactMouseEvent } from 'react';
+import React, { useMemo, useState, useEffect, useRef, FormEvent, MouseEvent as ReactMouseEvent } from 'react';
 import Layout from '../components/Layout';
 import RoomSelector from '../components/RoomSelector';
 import HotelCard from '../components/HotelCard';
@@ -7,9 +7,10 @@ import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
 import { SearchInput, SortButton } from '../components/FilterControls';
 import BookingFlowModal, { BookingSubmissionData } from '../components/BookingFlowModal';
+import { useQueryClient } from '@tanstack/react-query';
 import { useOrdersStore } from '../store/useOrdersStore';
-import { searchCities, getIproAvailability } from '../services/bookingApi';
-import { Hotel, CityOption, RoomOccupancy } from '../types';
+import { useCitySearch, useHotelSearch, fetchCitySuggestions } from '../hooks/useHotels';
+import { Hotel, CityOption, RoomOccupancy, SearchDetailsParams } from '../types';
 import { Search as SearchIcon, MapPin, Building2, Globe, AlertCircle, Sparkles } from 'lucide-react';
 
 const PAGE_SIZE = 6;
@@ -34,6 +35,7 @@ function todayPlus(days: number): string {
 }
 
 export default function HotelSearch() {
+  const queryClient = useQueryClient();
   const createOrder = useOrdersStore((state) => state.createOrder);
 
   const [form, setForm] = useState<{
@@ -54,19 +56,34 @@ export default function HotelSearch() {
     rooms: [{ adults: 2, children: 0 }],
   });
 
-  // City autocomplete state
-  const [citySuggestions, setCitySuggestions] = useState<CityOption[]>([]);
-  const [isSearchingCities, setIsSearchingCities] = useState(false);
+  // City autocomplete dropdown state
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement | null>(null);
 
-  // Search execution state
-  const [hotels, setHotels] = useState<Hotel[]>([]);
-  const [searched, setSearched] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [searchMeta, setSearchMeta] = useState<{ countResults: number; searchId?: string } | null>(null);
+  // React Query hook for city search
+  const { data: citySuggestions = [], isFetching: isSearchingCities } = useCitySearch(form.destination);
+
+  // Active search params state to trigger React Query search
+  const [activeSearchParams, setActiveSearchParams] = useState<SearchDetailsParams | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
   const [appliedDestination, setAppliedDestination] = useState('');
+
+  // React Query hook for hotel availability search
+  const {
+    data: searchResult,
+    isLoading: isHotelsLoading,
+    isFetching: isHotelsFetching,
+    isError,
+    error,
+  } = useHotelSearch(activeSearchParams, hasSearched);
+
+  const hotels = searchResult?.hotels || [];
+  const searchMeta = searchResult
+    ? {
+        countResults: searchResult.countResults,
+        searchId: searchResult.rawResponse?.SearchId,
+      }
+    : null;
 
   // Filters & sorting state
   const [nameFilter, setNameFilter] = useState('');
@@ -89,22 +106,10 @@ export default function HotelSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch city suggestions as user types
   const handleDestinationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setForm((f) => ({ ...f, destination: value, selectedCityId: null }));
     setShowSuggestions(true);
-
-    if (value.trim().length >= 1) {
-      setIsSearchingCities(true);
-      searchCities(value).then((results) => {
-        setCitySuggestions(results);
-        setIsSearchingCities(false);
-      });
-    } else {
-      setCitySuggestions([]);
-      setIsSearchingCities(false);
-    }
   };
 
   const handleSelectCity = (city: CityOption) => {
@@ -116,48 +121,32 @@ export default function HotelSearch() {
     setShowSuggestions(false);
   };
 
-  // Perform API hotel search via POST /bookings/ipro/search
+  // Trigger TanStack React Query search
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setSearched(false);
-    setErrorMsg(null);
     setAppliedDestination(form.destination);
     setPage(1);
 
-    try {
-      let cityId = form.selectedCityId;
-      if (!cityId && form.destination.trim()) {
-        const matches = await searchCities(form.destination);
-        if (matches.length > 0) {
-          cityId = matches[0].id;
-        }
+    let cityId = form.selectedCityId;
+    if (!cityId && form.destination.trim()) {
+      const matches = await fetchCitySuggestions(queryClient, form.destination);
+      if (matches.length > 0) {
+        cityId = matches[0].id;
       }
-
-      const result = await getIproAvailability({
-        city: cityId ? String(cityId) : form.destination || '34',
-        cityName: form.destination,
-        checkIn: form.checkIn,
-        checkOut: form.checkOut,
-        nationality: form.nationality,
-        residence: form.residence,
-        rooms: form.rooms,
-      });
-
-      setHotels(result.hotels);
-      setSearchMeta({
-        countResults: result.countResults,
-        searchId: result.rawResponse?.SearchId,
-      });
-      setSearched(true);
-    } catch (err: any) {
-      console.error('Failed to fetch hotels:', err);
-      setErrorMsg(err.message || 'Failed to fetch hotel offers from server.');
-      setHotels([]);
-      setSearched(true);
-    } finally {
-      setLoading(false);
     }
+
+    const newSearchParams: SearchDetailsParams = {
+      city: cityId ? String(cityId) : form.destination || '34',
+      cityName: form.destination,
+      checkIn: form.checkIn,
+      checkOut: form.checkOut,
+      nationality: form.nationality,
+      residence: form.residence,
+      rooms: form.rooms,
+    };
+
+    setActiveSearchParams(newSearchParams);
+    setHasSearched(true);
   };
 
   const filteredHotels = useMemo(() => {
@@ -200,12 +189,14 @@ export default function HotelSearch() {
     setSelectedHotel(null);
   };
 
+  const loading = isHotelsLoading || isHotelsFetching;
+
   return (
-    <Layout title="Hotel Search & Booking" subtitle="Live OpenAPI integration (https://delivero-nh1o.onrender.com)">
+    <Layout title="Hotel Search & Booking" subtitle="Live OpenAPI integration powered by TanStack React Query">
       <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-soft p-5 lg:p-6 mb-6">
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-ink-900/5">
           <span className="text-xs font-bold text-navy-900 tracking-wider uppercase flex items-center gap-1.5">
-            <Sparkles size={14} className="text-gold-400" /> Delivero IPRO API Search
+            <Sparkles size={14} className="text-gold-400" /> Delivero IPRO API Search (React Query)
           </span>
           <span className="text-xs text-ink-500 bg-navy-900/5 px-2.5 py-1 rounded-full font-mono">
             POST /bookings/ipro/search
@@ -327,17 +318,17 @@ export default function HotelSearch() {
         </div>
       </form>
 
-      {errorMsg && (
+      {isError && (
         <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-rose-800 text-sm">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold">API Error</p>
-            <p>{errorMsg}</p>
+            <p>{error?.message || 'Failed to fetch hotel offers from server.'}</p>
           </div>
         </div>
       )}
 
-      {(loading || searched) && (
+      {(loading || hasSearched) && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex flex-wrap items-center gap-3">
