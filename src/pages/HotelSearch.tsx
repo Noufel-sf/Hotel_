@@ -1,17 +1,19 @@
-import React, { useMemo, useState, useEffect, useRef, FormEvent, MouseEvent as ReactMouseEvent } from 'react';
+import { useMemo, useState, useEffect, useRef, FormEvent, MouseEvent as ReactMouseEvent } from 'react';
 import Layout from '../components/Layout';
 import RoomSelector from '../components/RoomSelector';
 import HotelCard from '../components/HotelCard';
 import { HotelCardSkeleton } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
+import FilterSidebar from '../components/FilterSidebar';
+import Drawer from '../components/Drawer';
 import { SearchInput, SortButton } from '../components/FilterControls';
 import BookingFlowModal, { BookingSubmissionData } from '../components/BookingFlowModal';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOrdersStore } from '../store/useOrdersStore';
 import { useCitySearch, useHotelSearch, fetchCitySuggestions } from '../hooks/useHotels';
-import { Hotel, CityOption, RoomOccupancy, SearchDetailsParams } from '../types';
-import { Search as SearchIcon, MapPin, Building2, Globe, AlertCircle, Sparkles } from 'lucide-react';
+import { Hotel, CityOption, RoomOccupancy, SearchDetailsParams, AdvancedFilterState } from '../types';
+import { Search as SearchIcon, MapPin, Building2, Globe, AlertCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
 
 const PAGE_SIZE = 6;
 
@@ -33,6 +35,21 @@ function todayPlus(days: number): string {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+const initialAdvancedFilters: AdvancedFilterState = {
+  search: '',
+  promosOnly: false,
+  freeChildOnly: false,
+  availableOnly: false,
+  freeCancellationOnly: false,
+  arrangements: [],
+  categories: [],
+  minPrice: 0,
+  maxPrice: 0,
+  roomTypes: [],
+  services: [],
+  sortDir: 'asc',
+};
 
 export default function HotelSearch() {
   const queryClient = useQueryClient();
@@ -85,12 +102,9 @@ export default function HotelSearch() {
       }
     : null;
 
-  // Filters & sorting state
-  const [nameFilter, setNameFilter] = useState('');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [starFilter, setStarFilter] = useState('');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // Advanced Filters State
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilterState>(initialAdvancedFilters);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null);
@@ -149,19 +163,66 @@ export default function HotelSearch() {
     setHasSearched(true);
   };
 
+  // Filter & Sort Logic
   const filteredHotels = useMemo(() => {
     let list = hotels;
-    if (nameFilter.trim()) {
-      const q = nameFilter.trim().toLowerCase();
+
+    // Search query filter
+    if (advancedFilters.search.trim()) {
+      const q = advancedFilters.search.trim().toLowerCase();
       list = list.filter((h) => h.name.toLowerCase().includes(q));
     }
-    if (minPrice) list = list.filter((h) => h.price >= Number(minPrice));
-    if (maxPrice) list = list.filter((h) => h.price <= Number(maxPrice));
-    if (starFilter) list = list.filter((h) => h.stars === Number(starFilter));
 
-    list = [...list].sort((a, b) => (sortDir === 'asc' ? a.price - b.price : b.price - a.price));
+    // Tarifs et disponibilités filters
+    if (advancedFilters.promosOnly) {
+      list = list.filter((h) => h.isPromo);
+    }
+    if (advancedFilters.freeChildOnly) {
+      list = list.filter((h) => h.freeChild);
+    }
+    if (advancedFilters.availableOnly) {
+      list = list.filter((h) => h.availability === 'Available Directly');
+    }
+    if (advancedFilters.freeCancellationOnly) {
+      list = list.filter((h) => h.hasFreeCancellation);
+    }
+
+    // Arrangements filter (Meal plan)
+    if (advancedFilters.arrangements.length > 0) {
+      list = list.filter((h) => advancedFilters.arrangements.includes(h.mealPlan));
+    }
+
+    // Catégorie filter (Star rating)
+    if (advancedFilters.categories.length > 0) {
+      list = list.filter((h) => advancedFilters.categories.includes(h.stars));
+    }
+
+    // Budget price filter
+    if (advancedFilters.maxPrice > 0) {
+      list = list.filter((h) => h.price <= advancedFilters.maxPrice);
+    }
+
+    // Room type filter
+    if (advancedFilters.roomTypes.length > 0) {
+      list = list.filter((h) => h.roomType && advancedFilters.roomTypes.includes(h.roomType));
+    }
+
+    // Services filter
+    if (advancedFilters.services.length > 0) {
+      list = list.filter(
+        (h) =>
+          Array.isArray(h.services) &&
+          advancedFilters.services.some((s) => h.services?.includes(s))
+      );
+    }
+
+    // Price sorting
+    list = [...list].sort((a, b) =>
+      advancedFilters.sortDir === 'asc' ? a.price - b.price : b.price - a.price
+    );
+
     return list;
-  }, [hotels, nameFilter, minPrice, maxPrice, starFilter, sortDir]);
+  }, [hotels, advancedFilters]);
 
   const totalPages = Math.max(1, Math.ceil(filteredHotels.length / PAGE_SIZE));
   const pageItems = filteredHotels.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -191,12 +252,28 @@ export default function HotelSearch() {
 
   const loading = isHotelsLoading || isHotelsFetching;
 
+  // Active filter badge count for mobile floating button
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (advancedFilters.search) count++;
+    if (advancedFilters.promosOnly) count++;
+    if (advancedFilters.freeChildOnly) count++;
+    if (advancedFilters.availableOnly) count++;
+    if (advancedFilters.freeCancellationOnly) count++;
+    count += advancedFilters.arrangements.length;
+    count += advancedFilters.categories.length;
+    if (advancedFilters.maxPrice > 0) count++;
+    count += advancedFilters.roomTypes.length;
+    count += advancedFilters.services.length;
+    return count;
+  }, [advancedFilters]);
+
   return (
-    <Layout title="Hotel Search & Booking" subtitle="Live OpenAPI integration powered by TanStack React Query">
+    <Layout title="Hotel Search & Booking" subtitle="Live OpenAPI integration with Advanced Filter Sidebar">
       <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-soft p-5 lg:p-6 mb-6">
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-ink-900/5">
           <span className="text-xs font-bold text-navy-900 tracking-wider uppercase flex items-center gap-1.5">
-            <Sparkles size={14} className="text-gold-400" /> Delivero IPRO API Search (React Query)
+            <Sparkles size={14} className="text-gold-400" /> Delivero IPRO API Search
           </span>
           <span className="text-xs text-ink-500 bg-navy-900/5 px-2.5 py-1 rounded-full font-mono">
             POST /bookings/ipro/search
@@ -329,84 +406,113 @@ export default function HotelSearch() {
       )}
 
       {(loading || hasSearched) && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-            <div className="flex flex-wrap items-center gap-3">
-              <SearchInput value={nameFilter} onChange={(v) => { setNameFilter(v); setPage(1); }} placeholder="Search hotel name…" />
-              <input
-                type="number"
-                value={minPrice}
-                onChange={(e) => { setMinPrice(e.target.value); setPage(1); }}
-                placeholder="Min price"
-                className="w-28 px-3 py-2.5 rounded-lg border border-ink-900/10 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-gold-400"
-              />
-              <input
-                type="number"
-                value={maxPrice}
-                onChange={(e) => { setMaxPrice(e.target.value); setPage(1); }}
-                placeholder="Max price"
-                className="w-28 px-3 py-2.5 rounded-lg border border-ink-900/10 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-gold-400"
-              />
-              <select
-                value={starFilter}
-                onChange={(e) => { setStarFilter(e.target.value); setPage(1); }}
-                className="px-3 py-2.5 rounded-lg border border-ink-900/10 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-gold-400"
-              >
-                <option value="">All star ratings</option>
-                {[3, 4, 5].map((s) => (
-                  <option key={s} value={s}>{s} star</option>
-                ))}
-              </select>
-              <SortButton
-                label="Price"
-                active
-                direction={sortDir}
-                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              />
-            </div>
-
-            {searchMeta && (
-              <div className="text-xs text-ink-500 bg-white px-3 py-2 rounded-lg border border-ink-900/5 shadow-xs font-mono">
-                Results: <span className="font-semibold text-navy-900 font-sans">{searchMeta.countResults}</span> offers
-                {searchMeta.searchId && <span className="ml-2 text-[11px] text-ink-400">({searchMeta.searchId})</span>}
-              </div>
-            )}
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
+          {/* Desktop Filter Sidebar */}
+          <div className="hidden lg:block lg:w-72 xl:w-80 shrink-0 sticky top-24">
+            <FilterSidebar
+              hotels={hotels}
+              filters={advancedFilters}
+              onFilterChange={(f) => { setAdvancedFilters(f); setPage(1); }}
+              onReset={() => { setAdvancedFilters(initialAdvancedFilters); setPage(1); }}
+            />
           </div>
 
-          {loading ? (
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-              {Array.from({ length: 6 }).map((_, i) => <HotelCardSkeleton key={i} />)}
-            </div>
-          ) : pageItems.length === 0 ? (
-            <div className="bg-white rounded-2xl shadow-soft">
-              <EmptyState
-                icon={Building2}
-                title="No hotel offers found"
-                description={
-                  appliedDestination
-                    ? `No availability found for "${appliedDestination}". Try searching cities like Hammamet, Sousse, or Djerba, or adjusting your travel dates.`
-                    : 'Search for a city above to fetch real hotel availability from the Delivero API.'
-                }
-              />
-            </div>
-          ) : (
-            <>
-              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                {pageItems.map((hotel) => (
-                  <HotelCard key={hotel.id} hotel={hotel} onOrder={setSelectedHotel} />
-                ))}
+          {/* Main Results Column */}
+          <div className="flex-1 min-w-0 w-full">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                {/* Mobile Filter Drawer Button */}
+                <button
+                  type="button"
+                  onClick={() => setMobileFilterOpen(true)}
+                  className="lg:hidden flex items-center gap-2 bg-white border border-ink-900/10 px-4 py-2.5 rounded-xl text-sm font-semibold text-sky-600 hover:bg-sky-50 transition-colors"
+                >
+                  <SlidersHorizontal size={16} />
+                  <span>Filtrer</span>
+                  {activeFilterCount > 0 && (
+                    <span className="w-5 h-5 rounded-full bg-sky-500 text-white text-xs flex items-center justify-center font-bold">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+
+                <SearchInput
+                  value={advancedFilters.search}
+                  onChange={(v) => { setAdvancedFilters((f) => ({ ...f, search: v })); setPage(1); }}
+                  placeholder="Search hotel name…"
+                />
               </div>
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                onPageChange={setPage}
-                pageSize={PAGE_SIZE}
-                totalItems={filteredHotels.length}
-              />
-            </>
-          )}
-        </>
+
+              <div className="flex items-center gap-3">
+                <SortButton
+                  label="Price"
+                  active
+                  direction={advancedFilters.sortDir}
+                  onClick={() =>
+                    setAdvancedFilters((f) => ({
+                      ...f,
+                      sortDir: f.sortDir === 'asc' ? 'desc' : 'asc',
+                    }))
+                  }
+                />
+
+                {searchMeta && (
+                  <div className="text-xs text-ink-500 bg-white px-3 py-2 rounded-lg border border-ink-900/5 shadow-xs font-mono">
+                    Offers: <span className="font-semibold text-navy-900 font-sans">{filteredHotels.length}</span> / {searchMeta.countResults}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                {Array.from({ length: 6 }).map((_, i) => <HotelCardSkeleton key={i} />)}
+              </div>
+            ) : pageItems.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-soft">
+                <EmptyState
+                  icon={Building2}
+                  title="No hotel offers match filters"
+                  description={
+                    appliedDestination
+                      ? `No availability found for "${appliedDestination}" matching selected filters. Try resetting filters or adjusting search dates.`
+                      : 'Search for a city above to fetch real hotel availability from the Delivero API.'
+                  }
+                />
+              </div>
+            ) : (
+              <>
+                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                  {pageItems.map((hotel) => (
+                    <HotelCard key={hotel.id} hotel={hotel} onOrder={setSelectedHotel} />
+                  ))}
+                </div>
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  pageSize={PAGE_SIZE}
+                  totalItems={filteredHotels.length}
+                />
+              </>
+            )}
+          </div>
+        </div>
       )}
+
+      {/* Mobile Drawer for FilterSidebar */}
+      <Drawer
+        open={mobileFilterOpen}
+        onClose={() => setMobileFilterOpen(false)}
+        title="Filtrer"
+      >
+        <FilterSidebar
+          hotels={hotels}
+          filters={advancedFilters}
+          onFilterChange={(f) => { setAdvancedFilters(f); setPage(1); }}
+          onReset={() => { setAdvancedFilters(initialAdvancedFilters); setPage(1); }}
+        />
+      </Drawer>
 
       <BookingFlowModal
         hotel={selectedHotel}

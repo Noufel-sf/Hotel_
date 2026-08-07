@@ -1,21 +1,26 @@
-import { Menu } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 interface TopbarProps {
   title?: string;
   subtitle?: string;
-  onMenuClick: () => void;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
 }
 
-export default function Topbar({ title, subtitle, onMenuClick }: TopbarProps) {
+export default function Topbar({ title, subtitle, sidebarOpen, onToggleSidebar }: TopbarProps) {
   return (
-    <header className="sticky top-0 z-20 bg-paper/90 backdrop-blur border-b border-ink-900/5 px-5 lg:px-8 py-4 flex items-center justify-between">
+    <header className="sticky top-0 z-20 container  bg-paper/90 backdrop-blur border-b border-ink-900/5 px-5 lg:px-8 mx-auto  py-4 flex items-center justify-between">
       <div className="flex items-center gap-3">
         <button
-          onClick={onMenuClick}
-          className="lg:hidden text-ink-700 hover:text-navy-900 p-1.5 -ml-1.5"
-          aria-label="Open menu"
+          onClick={onToggleSidebar}
+          className="text-ink-700 hover:text-navy-900 hover:bg-ink-900/5 rounded-lg p-2 transition-colors flex items-center gap-2 text-sm font-medium"
+          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
         >
-          <Menu size={22} />
+          {sidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+          <span className="hidden md:inline text-xs text-ink-500 font-normal">
+            {sidebarOpen ? 'Hide Menu' : 'Show Menu'}
+          </span>
         </button>
         <div>
           <h1 className="text-xl lg:text-2xl font-semibold text-navy-900">{title}</h1>

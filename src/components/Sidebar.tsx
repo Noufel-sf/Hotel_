@@ -15,6 +15,7 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   return (
     <>
+      {/* Mobile backdrop */}
       {open && (
         <div
           className="fixed inset-0 bg-navy-950/50 z-30 lg:hidden"
@@ -22,13 +23,13 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         />
       )}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-navy-900 text-white flex flex-col transform transition-transform duration-200 ${
-          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-navy-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${
+          open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex items-center justify-between px-6 py-6 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-gold-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-lg bg-gold-400 flex items-center justify-center shrink-0">
               <PlaneTakeoff size={18} className="text-navy-900" />
             </div>
             <div>
@@ -36,7 +37,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <p className="text-[11px] text-white/50 tracking-wide mt-1">Agency Console</p>
             </div>
           </div>
-          <button onClick={onClose} className="lg:hidden text-white/60 hover:text-white" aria-label="Close sidebar">
+          <button
+            onClick={onClose}
+            className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+            aria-label="Close sidebar"
+            title="Close sidebar"
+          >
             <X size={20} />
           </button>
         </div>
@@ -47,7 +53,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               key={to}
               to={to}
               end={end}
-              onClick={onClose}
+              onClick={() => {
+                // On mobile screens, auto-close sidebar on item selection
+                if (window.innerWidth < 1024) {
+                  onClose();
+                }
+              }}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive

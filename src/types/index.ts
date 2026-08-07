@@ -16,6 +16,12 @@ export interface Hotel {
   sharedPool: boolean;
   minStay: number;
   notes: string;
+  roomType?: string;
+  cancellationPolicy?: string;
+  hasFreeCancellation?: boolean;
+  isPromo?: boolean;
+  freeChild?: boolean;
+  services?: string[];
   raw?: any;
 }
 
@@ -82,6 +88,21 @@ export interface FilterState {
   whatsappStatus: string;
   dateFrom: string;
   dateTo: string;
+}
+
+export interface AdvancedFilterState {
+  search: string;
+  promosOnly: boolean;
+  freeChildOnly: boolean;
+  availableOnly: boolean;
+  freeCancellationOnly: boolean;
+  arrangements: string[];
+  categories: number[];
+  minPrice: number;
+  maxPrice: number;
+  roomTypes: string[];
+  services: string[];
+  sortDir: 'asc' | 'desc';
 }
 
 export interface HotelFilterState {

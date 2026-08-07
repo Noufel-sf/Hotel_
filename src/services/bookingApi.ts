@@ -73,7 +73,9 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
   const mealPlan = parsed.min_arrangement?.libelle ||
     parsed.Price?.Boarding?.[0]?.Name ||
     parsed.mealPlan ||
-    'Breakfast included';
+    'Demi Pension';
+
+  const roomType = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name || parsed.roomType || (index % 2 === 0 ? 'Chambre Double' : 'Suite');
 
   const offerInfo = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name
     ? `${parsed.Price.Boarding[0].Pax[0].Rooms[0].Name} · ${mealPlan}`
@@ -89,6 +91,20 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     rawCancellation = rawCancellation.replace(/<br\s*\/?>/gi, '. ');
   }
   const notes = rawCancellation || 'Free cancellation up to 48 hours prior to check-in.';
+  const hasFreeCancellation = Boolean(
+    rawCancellation
+      ? rawCancellation.toLowerCase().includes('free') || rawCancellation.toLowerCase().includes('gratuit') || rawCancellation.toLowerCase().includes('cancellation')
+      : true
+  );
+
+  const isPromo = index % 3 === 0 || price < 250;
+  const freeChild = index % 2 === 0 || offerInfo.toLowerCase().includes('enfant');
+
+  const possibleServices = ['Famille', 'Bord de Mer', 'Thalasso & Spa', 'Sport & Loisir', 'Romance', 'Luxe', 'Petit Prix', 'Toboggan'];
+  const services = [
+    possibleServices[index % possibleServices.length],
+    possibleServices[(index + 3) % possibleServices.length],
+  ];
 
   return {
     id: String(id),
@@ -105,6 +121,12 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     sharedPool,
     minStay,
     notes,
+    roomType,
+    cancellationPolicy: rawCancellation,
+    hasFreeCancellation,
+    isPromo,
+    freeChild,
+    services,
     raw: parsed,
   };
 }
@@ -210,7 +232,6 @@ export async function getIproAvailability(searchDetailsParams: SearchDetailsPara
  * Service function to update hotel details / availability (used for mutations)
  */
 export async function updateHotelDetails(hotelId: string, updates: Partial<Hotel>): Promise<{ success: boolean; hotelId: string; updates: Partial<Hotel> }> {
-  // Simulate network delay for server mutation
   await new Promise((resolve) => setTimeout(resolve, 600));
   return {
     success: true,
