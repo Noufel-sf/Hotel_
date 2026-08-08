@@ -12,6 +12,9 @@ export interface Hotel {
   description: string;
   offerInfo: string;
   availability: Availability;
+  disponible?: boolean;
+  surDemande?: boolean;
+  chambreDisponible?: string | number;
   mealPlan: MealPlan;
   sharedPool: boolean;
   minStay: number;

@@ -1,4 +1,4 @@
-import { Star, MapPin, Info, Tag } from 'lucide-react';
+import { Star, MapPin, Info, Tag, CheckCircle2, Clock } from 'lucide-react';
 import { formatCurrency } from '../utils/format';
 import { Hotel } from '../types';
 
@@ -8,6 +8,25 @@ interface HotelCardProps {
 }
 
 export default function HotelCard({ hotel, onOrder }: HotelCardProps) {
+  // Check surDemande attribute directly from min_arrangement.chambre
+  const chambre = hotel.raw?.min_arrangement?.chambre;
+
+  let surDemandeVal = hotel.surDemande;
+  if (surDemandeVal === undefined && chambre?.surDemande !== undefined) {
+    surDemandeVal = Boolean(chambre.surDemande);
+  }
+  if (surDemandeVal === undefined && hotel.disponible !== undefined) {
+    surDemandeVal = hotel.disponible;
+  }
+  if (surDemandeVal === undefined) {
+    surDemandeVal = hotel.availability === 'Available Directly';
+  }
+
+  // Reversed mapping:
+  // surDemande = true  => Disponible directement (emerald green)
+  // surDemande = false => Sur demande (amber)
+  const isDisponibleDirectement = Boolean(surDemandeVal);
+
   return (
     <div className="bg-white rounded-2xl cursor-pointer shadow-soft hover:shadow-card transition-shadow overflow-hidden flex flex-col">
       <div className="h-44 overflow-hidden relative">
@@ -21,6 +40,27 @@ export default function HotelCard({ hotel, onOrder }: HotelCardProps) {
           <Star size={12} className="fill-gold-400 text-gold-400" />
           {hotel.stars}
         </div>
+
+        {/* Span badge checking surDemande from min_arrangement.chambre */}
+        <span
+          className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-xs font-semibold backdrop-blur shadow-sm flex items-center gap-1.5 ${
+            isDisponibleDirectement
+              ? 'bg-emerald-600/90 text-white'
+              : 'bg-amber-600/90 text-white'
+          }`}
+        >
+          {isDisponibleDirectement ? (
+            <>
+              <CheckCircle2 size={12} className="shrink-0" />
+              <span>Disponible directement</span>
+            </>
+          ) : (
+            <>
+              <Clock size={12} className="shrink-0" />
+              <span>Sur demande</span>
+            </>
+          )}
+        </span>
       </div>
 
       <div className="p-5 flex flex-col flex-1">

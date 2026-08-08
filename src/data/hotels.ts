@@ -15,7 +15,7 @@ export const AVAILABILITY = {
 
 const img = (seed: string) => `https://images.unsplash.com/${seed}?auto=format&fit=crop&w=800&q=80`;
 
-export const hotels: Hotel[] = [
+const mockHotels: Hotel[] = [
   {
     id: 'HTL-001',
     name: 'Azure Coral Resort',
@@ -369,3 +369,13 @@ export const hotels: Hotel[] = [
     notes: 'Courtyard rooms can be noisy during evening events.',
   },
 ];
+
+export const hotels: Hotel[] = mockHotels.map((h) => {
+  const isDirect = h.availability === AVAILABILITY.DIRECT;
+  return {
+    ...h,
+    disponible: h.disponible ?? isDirect,
+    surDemande: h.surDemande ?? isDirect,
+  };
+});
+

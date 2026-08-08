@@ -75,13 +75,53 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     parsed.mealPlan ||
     'Demi Pension';
 
-  const roomType = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name || parsed.roomType || (index % 2 === 0 ? 'Chambre Double' : 'Suite');
+  const roomType =
+    parsed.min_arrangement?.chambre?.libelle ||
+    parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name ||
+    parsed.roomType ||
+    (index % 2 === 0 ? 'Chambre Double' : 'Suite');
 
-  const offerInfo = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name
+  const offerInfo = parsed.min_arrangement?.chambre?.libelle && parsed.min_arrangement?.libelle
+    ? `${parsed.min_arrangement.chambre.libelle} · ${parsed.min_arrangement.libelle}`
+    : parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name
     ? `${parsed.Price.Boarding[0].Pax[0].Rooms[0].Name} · ${mealPlan}`
     : 'Real-time availability & direct confirmation rate.';
 
-  const isAvailable = parsed.DataFiltre?.disponible !== false;
+  // Extract surDemande & disponible specifically from min_arrangement.chambre
+  const chambreObj = parsed.min_arrangement?.chambre;
+  let isAvailable = true;
+  let surDemandeVal: boolean | undefined = undefined;
+  let chambreDisponibleVal: string | number | undefined = undefined;
+
+  if (chambreObj) {
+    if (typeof chambreObj.surDemande === 'boolean') {
+      surDemandeVal = chambreObj.surDemande;
+      isAvailable = chambreObj.surDemande; // surDemande: true = Disponible directement
+    } else if (chambreObj.disponible !== undefined && chambreObj.disponible !== null) {
+      const d = chambreObj.disponible;
+      chambreDisponibleVal = d;
+      if (typeof d === 'boolean') {
+        isAvailable = d;
+      } else if (typeof d === 'number') {
+        isAvailable = d > 0;
+      } else if (typeof d === 'string') {
+        const num = parseInt(d, 10);
+        if (!isNaN(num)) {
+          isAvailable = num > 0;
+        } else {
+          isAvailable = d.toLowerCase() === 'true' || (d !== 'false' && d !== '0');
+        }
+      }
+      surDemandeVal = isAvailable;
+    }
+  } else if (typeof parsed.DataFiltre?.disponible === 'boolean') {
+    isAvailable = parsed.DataFiltre.disponible;
+    surDemandeVal = isAvailable;
+  } else if (typeof parsed.disponible === 'boolean') {
+    isAvailable = parsed.disponible;
+    surDemandeVal = isAvailable;
+  }
+
   const availability = isAvailable ? 'Available Directly' : 'On Request';
   const sharedPool = true;
   const minStay = 1;
@@ -145,6 +185,9 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     description,
     offerInfo,
     availability,
+    disponible: isAvailable,
+    surDemande: surDemandeVal,
+    chambreDisponible: chambreDisponibleVal,
     mealPlan,
     sharedPool,
     minStay,
