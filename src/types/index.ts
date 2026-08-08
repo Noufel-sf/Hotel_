@@ -15,6 +15,8 @@ export interface Hotel {
   disponible?: boolean;
   surDemande?: boolean;
   chambreDisponible?: string | number;
+  rembourssable?: boolean;
+  source?: string;
   mealPlan: MealPlan;
   sharedPool: boolean;
   minStay: number;

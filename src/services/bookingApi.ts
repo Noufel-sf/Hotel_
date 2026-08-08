@@ -188,6 +188,8 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     disponible: isAvailable,
     surDemande: surDemandeVal,
     chambreDisponible: chambreDisponibleVal,
+    rembourssable: parsed.DataFiltre?.rembourssable,
+    source: parsed.Source || hotelObj.Source,
     mealPlan,
     sharedPool,
     minStay,
