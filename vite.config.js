@@ -11,6 +11,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      '/clicngo': {
+        target: 'https://www.clicngo.biz',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/clicngo/, ''),
+      },
     },
   },
 });

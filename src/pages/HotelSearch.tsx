@@ -13,9 +13,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOrdersStore } from '../store/useOrdersStore';
 import { useCitySearch, useHotelSearch, fetchCitySuggestions } from '../hooks/useHotels';
 import { Hotel, CityOption, RoomOccupancy, SearchDetailsParams, AdvancedFilterState } from '../types';
-import { Search as SearchIcon, MapPin, Building2, Globe, AlertCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Search as SearchIcon, MapPin, Building2, Globe, Sparkles, SlidersHorizontal } from 'lucide-react';
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 10;
 
 const COMMON_NATIONALITIES = [
   { code: 'dz', name: 'Algeria (dz)' },
@@ -90,8 +90,6 @@ export default function HotelSearch() {
     data: searchResult,
     isLoading: isHotelsLoading,
     isFetching: isHotelsFetching,
-    isError,
-    error,
   } = useHotelSearch(activeSearchParams, hasSearched);
 
   const hotels = searchResult?.hotels || [];
@@ -157,10 +155,18 @@ export default function HotelSearch() {
       nationality: form.nationality,
       residence: form.residence,
       rooms: form.rooms,
+      page: 0,
     };
 
     setActiveSearchParams(newSearchParams);
     setHasSearched(true);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    if (activeSearchParams) {
+      setActiveSearchParams((prev) => (prev ? { ...prev, page: newPage - 1 } : null));
+    }
   };
 
   // Filter & Sort Logic
@@ -224,8 +230,9 @@ export default function HotelSearch() {
     return list;
   }, [hotels, advancedFilters]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredHotels.length / PAGE_SIZE));
-  const pageItems = filteredHotels.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalCount = searchMeta?.countResults !== undefined ? searchMeta.countResults : hotels.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageItems = filteredHotels;
 
   const handleBookingSubmit = ({ hotel, searchParams, totalPrice, customer, travelInfo }: BookingSubmissionData) => {
     createOrder({
@@ -488,9 +495,9 @@ export default function HotelSearch() {
                 <Pagination
                   page={page}
                   totalPages={totalPages}
-                  onPageChange={setPage}
+                  onPageChange={handlePageChange}
                   pageSize={PAGE_SIZE}
-                  totalItems={filteredHotels.length}
+                  totalItems={totalCount}
                 />
               </>
             )}

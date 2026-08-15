@@ -27,7 +27,6 @@ export default function HotelCard({ hotel, onOrder }: HotelCardProps) {
   const isDisponibleDirectement = Boolean(surDemandeVal);
   const roomCount = hotel.chambreDisponible ?? chambre?.disponible;
   const isRembourssable = hotel.rembourssable ?? hotel.raw?.DataFiltre?.rembourssable;
-  const source = hotel.source ?? hotel.raw?.Source;
 
   return (
     <div className="bg-white rounded-2xl cursor-pointer shadow-soft hover:shadow-card transition-shadow overflow-hidden flex flex-col">

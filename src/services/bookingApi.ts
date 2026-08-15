@@ -1,23 +1,75 @@
 import { Hotel, CityOption, SearchDetailsParams } from '../types';
 
-const BASE_URL = '/api';
+const BASE_URL = 'https://delivero-nh1o.onrender.com/hotels';
 
 /**
- * Searches for cities via OpenAPI endpoint /bookings/city-search
+ * Parses raw ClicnGo semicolon-separated city recommendation response string.
+ * Example format: "10371_ID//Tuban Beach, Indonésie;19645_FR//Tulle, France;"
+ */
+export function parseClicnGoCities(rawText: string): CityOption[] {
+  if (!rawText || typeof rawText !== 'string') return [];
+  const entries = rawText.split(';').filter((item) => item.trim().length > 0);
+
+  return entries.map((entry) => {
+    const raw = entry.trim(); // Complete string, e.g. "908_TN//Sousse, Tunisie"
+    const [left, right] = entry.split('//');
+    if (!left || !right) {
+      return {
+        id: raw,
+        name: raw,
+        destination: raw,
+      };
+    }
+
+    const fullCode = left.trim();
+    const leftParts = fullCode.split('_');
+    const country = leftParts[1] || '';
+
+    const rightParts = right.trim().split(',');
+    const name = rightParts[0].trim();
+    const destinationName = rightParts.slice(1).join(',').trim();
+    const destination = destinationName ? destinationName : name;
+
+    return {
+      id: raw,
+      name,
+      destination,
+      country,
+    };
+  });
+}
+
+/**
+ * Searches for cities via ClicnGo recommendation request endpoint:
+ * https://www.clicngo.biz/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q={q}&ilng=fr&iddestination=
  */
 export async function searchCities(query: string): Promise<CityOption[]> {
   if (!query || !query.trim()) return [];
-  try {
-    const response = await fetch(`${BASE_URL}/bookings/city-search?q=${encodeURIComponent(query.trim())}`);
-    if (!response.ok) {
-      throw new Error(`City search HTTP error: ${response.status}`);
+  const q = query.trim();
+
+  const clicngoUrls = [
+    `/clicngo/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q=${encodeURIComponent(q)}&ilng=fr&iddestination=`,
+    `https://www.clicngo.biz/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q=${encodeURIComponent(q)}&ilng=fr&iddestination=`,
+  ];
+
+  for (const url of clicngoUrls) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.includes('//')) {
+          const parsed = parseClicnGoCities(text);
+          if (parsed.length > 0) {
+            return parsed;
+          }
+        }
+      }
+    } catch (e) {
+      // Continue to next URL attempt
     }
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('Error fetching city search:', err);
-    return [];
   }
+
+  return [];
 }
 
 /**
@@ -49,12 +101,19 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
   else if (parsed.DataSort?.etoiles) stars = Number(parsed.DataSort.etoiles);
   else if (parsed.stars) stars = Number(parsed.stars);
 
-  // Price
+  // Price extraction
   let price = 150;
-  if (parsed.DataSort?.prix) price = Number(parsed.DataSort.prix);
-  else if (parsed.min_arrangement?.price) price = Number(parsed.min_arrangement.price);
-  else if (parsed.price) price = Number(parsed.price);
-  else if (parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Price) price = Number(parsed.Price.Boarding[0].Pax[0].Rooms[0].Price);
+  if (parsed.DataSort?.prix !== undefined && parsed.DataSort?.prix !== null && !isNaN(Number(parsed.DataSort.prix))) {
+    price = Number(parsed.DataSort.prix);
+  } else if (parsed.min_arrangement?.price !== undefined && !isNaN(Number(parsed.min_arrangement.price))) {
+    price = Number(parsed.min_arrangement.price);
+  } else if (parsed.min_arrangement?.min_prices !== undefined && !isNaN(Number(parsed.min_arrangement.min_prices))) {
+    price = Number(parsed.min_arrangement.min_prices);
+  } else if (parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Price !== undefined && !isNaN(Number(parsed.Price.Boarding[0].Pax[0].Rooms[0].Price))) {
+    price = Number(parsed.Price.Boarding[0].Pax[0].Rooms[0].Price);
+  } else if (parsed.price !== undefined && !isNaN(Number(parsed.price))) {
+    price = Number(parsed.price);
+  }
 
   const currency = parsed.Currency || parsed.currency || 'DZD';
 
@@ -212,12 +271,66 @@ export interface IproSearchResult {
 }
 
 /**
- * Searches for hotel availability via OpenAPI endpoint /bookings/ipro/search
+ * Searches for hotel availability via OpenAPI endpoint /hotels/search
  */
 export async function getIproAvailability(searchDetailsParams: SearchDetailsParams): Promise<IproSearchResult> {
   const nationality = String(searchDetailsParams.nationality || 'dz').toLowerCase();
   const residence = String(searchDetailsParams.residence || 'dz').toLowerCase();
+  const pageNum = searchDetailsParams.page !== undefined ? searchDetailsParams.page : 0;
+  const destinationLabel = searchDetailsParams.cityName || searchDetailsParams.city || '';
 
+  // If fetching a specific page > 0, try GET /hotels/search/results?page=pageNum with session cookie
+  if (pageNum > 0) {
+    try {
+      const pageRes = await fetch(`${BASE_URL}/search/results?page=${pageNum}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      if (pageRes.ok) {
+        let pageData = await pageRes.json();
+        if (typeof pageData === 'string') {
+          try {
+            pageData = JSON.parse(pageData);
+          } catch (e) {
+            console.warn('Could not parse pageData string:', e);
+          }
+        }
+
+        let rawList: any[] = [];
+        if (Array.isArray(pageData)) {
+          rawList = pageData;
+        } else if (pageData && Array.isArray(pageData.HotelSearch)) {
+          rawList = pageData.HotelSearch;
+        } else if (pageData && Array.isArray(pageData.results)) {
+          rawList = pageData.results;
+        } else if (pageData && Array.isArray(pageData.hotels)) {
+          rawList = pageData.hotels;
+        }
+
+        if (rawList.length > 0) {
+          const normalizedHotels = rawList
+            .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
+            .filter((h): h is Hotel => h !== null);
+
+          const countResults = pageData?.CountResults !== undefined ? pageData.CountResults : normalizedHotels.length;
+
+          return {
+            hotels: normalizedHotels,
+            rawResponse: pageData,
+            countResults,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('GET /hotels/search/results failed, falling back to POST /hotels/search:', err);
+    }
+  }
+
+  // Primary POST search initiation (or fallback)
   const payload = {
     SearchDetails: {
       BookingDetails: {
@@ -245,11 +358,12 @@ export async function getIproAvailability(searchDetailsParams: SearchDetailsPara
   };
 
   try {
-    const response = await fetch(`${BASE_URL}/bookings/ipro/search`, {
+    const response = await fetch(`${BASE_URL}/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
 
@@ -284,7 +398,6 @@ export async function getIproAvailability(searchDetailsParams: SearchDetailsPara
       rawList = data.hotels;
     }
 
-    const destinationLabel = searchDetailsParams.cityName || searchDetailsParams.city || '';
     const normalizedHotels = rawList
       .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
       .filter((h): h is Hotel => h !== null);

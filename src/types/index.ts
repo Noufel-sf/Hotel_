@@ -148,6 +148,7 @@ export interface SearchDetailsParams {
   combinationRooms?: boolean;
   boardingByRooms?: boolean;
   source?: string;
+  page?: number;
 }
 
 export interface Toast {
