@@ -107,6 +107,15 @@ export default function HotelSearch() {
 
   const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null);
 
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // Sync session ID from search results
+  useEffect(() => {
+    if (searchResult?.sessionId) {
+      setCurrentSessionId(searchResult.sessionId);
+    }
+  }, [searchResult?.sessionId]);
+
   // Close suggestions when clicking outside
   useEffect(() => {
     function handleClickOutside(e: ReactMouseEvent | Event) {
@@ -138,6 +147,7 @@ export default function HotelSearch() {
     e.preventDefault();
     setAppliedDestination(form.destination);
     setPage(1);
+    setCurrentSessionId(null);
 
     let cityId = form.selectedCityId;
     if (!cityId && form.destination.trim()) {
@@ -156,6 +166,7 @@ export default function HotelSearch() {
       residence: form.residence,
       rooms: form.rooms,
       page: 0,
+      sessionId: undefined, // Omit to trigger initial POST search
     };
 
     setActiveSearchParams(newSearchParams);
@@ -165,7 +176,15 @@ export default function HotelSearch() {
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
     if (activeSearchParams) {
-      setActiveSearchParams((prev) => (prev ? { ...prev, page: newPage - 1 } : null));
+      setActiveSearchParams((prev) =>
+        prev
+          ? {
+              ...prev,
+              page: newPage - 1,
+              sessionId: currentSessionId || prev.sessionId,
+            }
+          : null
+      );
     }
   };
 
@@ -230,9 +249,19 @@ export default function HotelSearch() {
     return list;
   }, [hotels, advancedFilters]);
 
-  const totalCount = searchMeta?.countResults !== undefined ? searchMeta.countResults : hotels.length;
+  const totalCount = searchMeta?.countResults !== undefined && searchMeta.countResults > 0
+    ? searchMeta.countResults
+    : filteredHotels.length;
+
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const pageItems = filteredHotels;
+
+  const pageItems = useMemo(() => {
+    if (filteredHotels.length > PAGE_SIZE) {
+      const start = (page - 1) * PAGE_SIZE;
+      return filteredHotels.slice(start, start + PAGE_SIZE);
+    }
+    return filteredHotels;
+  }, [filteredHotels, page]);
 
   const handleBookingSubmit = ({ hotel, searchParams, totalPrice, customer, travelInfo }: BookingSubmissionData) => {
     createOrder({

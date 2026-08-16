@@ -129,13 +129,54 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
   };
 }
 
+let storedSessionId: string | null = null;
+
 /**
  * Executes a hotel availability search against the backend API.
+ * Performs POST /hotels/search (obtaining data.sessionId) and GET /hotels/search/{sessionId}/results?page=N for pagination.
  */
 export async function getHotelsAvailability(searchParams: SearchDetailsParams): Promise<HotelSearchResult> {
   const nationality = String(searchParams.nationality || 'dz').toLowerCase();
   const residence = String(searchParams.residence || 'dz').toLowerCase();
+  const pageNum = searchParams.page ?? 0;
+  const activeSessionId = searchParams.sessionId || storedSessionId;
 
+  // Execute GET /hotels/search/{sessionId}/results when paginating (pageNum > 0)
+  if (pageNum > 0 && activeSessionId) {
+    try {
+      const response = await apiClient.get(`/hotels/search/${activeSessionId}/results`, {
+        params: { page: pageNum },
+      });
+
+      const data = response.data;
+      if (data?.Erreur) {
+        throw new Error(data.Erreur);
+      }
+
+      const rawList: any[] = Array.isArray(data)
+        ? data
+        : data?.searchResult?.HotelSearch || data?.HotelSearch || data?.results || data?.hotels || [];
+
+      const destinationLabel = searchParams.cityName || searchParams.city || '';
+      const normalizedHotels = rawList
+        .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
+        .filter((h): h is Hotel => h !== null);
+
+      const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? normalizedHotels.length;
+
+      return {
+        hotels: normalizedHotels,
+        rawResponse: data,
+        countResults: totalCount,
+        sessionId: activeSessionId || undefined,
+      };
+    } catch (error) {
+      console.error('GET pagination error:', error);
+      throw error;
+    }
+  }
+
+  // Initial POST availability search
   const payload = {
     SearchDetails: {
       BookingDetails: {
@@ -161,31 +202,36 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
   };
 
   try {
-    let response;
-    try {
-      response = await apiClient.post('/search', payload);
-    } catch (err) {
-      response = await apiClient.post('/hotels/search', payload);
-    }
+    const response = await apiClient.post('/hotels/search', payload);
 
     const data = response.data;
     if (data?.Erreur) {
       throw new Error(data.Erreur);
     }
 
+    // Extract session ID directly from root data property or searchResult
+    const extractedSessionId = data?.sessionId || data?.searchResult?.sessionId || data?.SessionId;
+
+    if (extractedSessionId) {
+      storedSessionId = String(extractedSessionId);
+    }
+
     const rawList: any[] = Array.isArray(data)
       ? data
-      : data?.HotelSearch || data?.results || data?.hotels || [];
+      : data?.searchResult?.HotelSearch || data?.HotelSearch || data?.results || data?.hotels || [];
 
     const destinationLabel = searchParams.cityName || searchParams.city || '';
     const normalizedHotels = rawList
       .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
       .filter((h): h is Hotel => h !== null);
 
+    const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? normalizedHotels.length;
+
     return {
       hotels: normalizedHotels,
       rawResponse: data,
-      countResults: data?.CountResults ?? normalizedHotels.length,
+      countResults: totalCount,
+      sessionId: storedSessionId || undefined,
     };
   } catch (error) {
     console.error('Hotel search error:', error);
@@ -208,6 +254,4 @@ export async function updateHotelDetails(
   };
 }
 
-// Backward compatibility export aliases
-export const getIproAvailability = getHotelsAvailability;
 export const parseClicnGoCities = parseCityString;

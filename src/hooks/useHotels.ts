@@ -1,7 +1,6 @@
-import { QueryClient, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, useQuery } from '@tanstack/react-query';
 import { searchCities, getHotelsAvailability, HotelSearchResult } from '../services/bookingApi';
 import { SearchDetailsParams, CityOption, Hotel } from '../types';
-import { useToastStore } from '../store/useToastStore';
 
 // Query Key Factory for clean cache management
 export const hotelKeys = {
@@ -46,7 +45,9 @@ export function useHotelSearch(params: SearchDetailsParams | null, enabled: bool
     queryFn: () => getHotelsAvailability(params!),
     enabled: Boolean(params && enabled),
     staleTime: 1000 * 60 * 5, // Cache hotel availability for 5 minutes
-    retry: 1,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
 }
 

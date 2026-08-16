@@ -149,6 +149,7 @@ export interface SearchDetailsParams {
   boardingByRooms?: boolean;
   source?: string;
   page?: number;
+  sessionId?: string;
 }
 
 export interface Toast {
