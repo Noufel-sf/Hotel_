@@ -1,240 +1,110 @@
 import { Hotel, CityOption, SearchDetailsParams } from '../types';
+import { apiClient } from './apiClient';
 
-const BASE_URL = 'https://delivero-nh1o.onrender.com/hotels';
+export interface HotelSearchResult {
+  hotels: Hotel[];
+  rawResponse: any;
+  countResults: number;
+  sessionId?: string;
+}
+
+// Backward compatibility alias for IproSearchResult
+export type IproSearchResult = HotelSearchResult;
 
 /**
- * Parses raw ClicnGo semicolon-separated city recommendation response string.
- * Example format: "10371_ID//Tuban Beach, Indonésie;19645_FR//Tulle, France;"
+ * Parses semicolon-separated city strings (e.g. "908_TN//Sousse, Tunisie;") into CityOption objects.
  */
-export function parseClicnGoCities(rawText: string): CityOption[] {
+export function parseCityString(rawText: string): CityOption[] {
   if (!rawText || typeof rawText !== 'string') return [];
-  const entries = rawText.split(';').filter((item) => item.trim().length > 0);
 
-  return entries.map((entry) => {
-    const raw = entry.trim(); // Complete string, e.g. "908_TN//Sousse, Tunisie"
-    const [left, right] = entry.split('//');
-    if (!left || !right) {
+  return rawText
+    .split(';')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((entry) => {
+      const [codePart, locationPart] = entry.split('//');
+      if (!codePart || !locationPart) {
+        return { id: entry, name: entry, destination: entry };
+      }
+
+      const country = codePart.split('_')[1] || '';
+      const [cityName, destinationName] = locationPart.split(',').map((s) => s.trim());
+
       return {
-        id: raw,
-        name: raw,
-        destination: raw,
+        id: entry,
+        name: cityName || entry,
+        destination: destinationName || cityName || entry,
+        country,
       };
-    }
-
-    const fullCode = left.trim();
-    const leftParts = fullCode.split('_');
-    const country = leftParts[1] || '';
-
-    const rightParts = right.trim().split(',');
-    const name = rightParts[0].trim();
-    const destinationName = rightParts.slice(1).join(',').trim();
-    const destination = destinationName ? destinationName : name;
-
-    return {
-      id: raw,
-      name,
-      destination,
-      country,
-    };
-  });
+    });
 }
 
 /**
- * Searches for cities via ClicnGo recommendation request endpoint:
- * https://www.clicngo.biz/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q={q}&ilng=fr&iddestination=
+ * Searches for cities matching a search query using the backend endpoint GET /hotels/city-search
  */
 export async function searchCities(query: string): Promise<CityOption[]> {
-  if (!query || !query.trim()) return [];
-  const q = query.trim();
+  const q = query?.trim();
+  if (!q) return [];
 
-  const clicngoUrls = [
-    `/clicngo/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q=${encodeURIComponent(q)}&ilng=fr&iddestination=`,
-    `https://www.clicngo.biz/cr.b2b/common/Ajax/Ajax.aspx?m=Allcities&q=${encodeURIComponent(q)}&ilng=fr&iddestination=`,
-  ];
+  try {
+    const response = await apiClient.get('/hotels/city-search', {
+      params: { query: q },
+    });
 
-  for (const url of clicngoUrls) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.includes('//')) {
-          const parsed = parseClicnGoCities(text);
-          if (parsed.length > 0) {
-            return parsed;
-          }
-        }
-      }
-    } catch (e) {
-      // Continue to next URL attempt
+    const data = response.data;
+    if (typeof data === 'string' && data.includes('//')) {
+      return parseCityString(data);
     }
+    if (Array.isArray(data)) {
+      return data;
+    }
+  } catch (error) {
+    console.error('Failed to search cities:', error);
   }
 
   return [];
 }
 
 /**
- * Normalizes hotel object from API to standard UI hotel structure
+ * Normalizes raw backend API hotel objects into the application's clean Hotel type.
  */
-export function normalizeHotel(item: any, index: number = 0, searchDestination: string = ''): Hotel | null {
+export function normalizeHotel(item: any, index: number = 0, defaultDestination: string = ''): Hotel | null {
   if (!item) return null;
-  let parsed = item;
-  if (typeof item === 'string') {
-    try {
-      parsed = JSON.parse(item);
-    } catch {
-      parsed = { name: item };
-    }
-  }
 
-  // Handle nested Hotel object structure returned by live IPRO backend
+  const parsed = typeof item === 'string' ? JSON.parse(item) : item;
   const hotelObj = parsed.Hotel || parsed;
-  const id = hotelObj.Id || hotelObj.id || hotelObj.HotelCode || hotelObj.code || `API-HTL-${index + 1}`;
-  const name = hotelObj.Name || hotelObj.name || hotelObj.HotelName || hotelObj.Nom || 'Hotel Offer';
 
-  const cityName = hotelObj.City?.Name || hotelObj.city || parsed.City || searchDestination || 'Destination';
+  const id = String(hotelObj.Id || hotelObj.id || hotelObj.code || `hotel-${index + 1}`);
+  const name = String(hotelObj.Name || hotelObj.name || hotelObj.HotelName || 'Hotel Offer');
+  const cityName = hotelObj.City?.Name || hotelObj.city || parsed.City || defaultDestination || 'Destination';
   const regionName = hotelObj.City?.Region ? `, ${hotelObj.City.Region}` : '';
   const destination = `${cityName}${regionName}`;
 
-  // Star Rating
-  let stars = 4;
-  if (hotelObj.Category?.Star) stars = Number(hotelObj.Category.Star);
-  else if (parsed.DataSort?.etoiles) stars = Number(parsed.DataSort.etoiles);
-  else if (parsed.stars) stars = Number(parsed.stars);
-
-  // Price extraction
-  let price = 150;
-  if (parsed.DataSort?.prix !== undefined && parsed.DataSort?.prix !== null && !isNaN(Number(parsed.DataSort.prix))) {
-    price = Number(parsed.DataSort.prix);
-  } else if (parsed.min_arrangement?.price !== undefined && !isNaN(Number(parsed.min_arrangement.price))) {
-    price = Number(parsed.min_arrangement.price);
-  } else if (parsed.min_arrangement?.min_prices !== undefined && !isNaN(Number(parsed.min_arrangement.min_prices))) {
-    price = Number(parsed.min_arrangement.min_prices);
-  } else if (parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Price !== undefined && !isNaN(Number(parsed.Price.Boarding[0].Pax[0].Rooms[0].Price))) {
-    price = Number(parsed.Price.Boarding[0].Pax[0].Rooms[0].Price);
-  } else if (parsed.price !== undefined && !isNaN(Number(parsed.price))) {
-    price = Number(parsed.price);
-  }
-
+  const stars = Number(hotelObj.Category?.Star || parsed.DataSort?.etoiles || parsed.stars || 4);
+  const price = Number(
+    parsed.DataSort?.prix ??
+    parsed.min_arrangement?.price ??
+    parsed.min_arrangement?.min_prices ??
+    parsed.price ??
+    150
+  );
   const currency = parsed.Currency || parsed.currency || 'DZD';
-
-  const defaultImages = [
-    'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1548704806-38f5cf5b6f2f?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=800&q=80',
-  ];
-  const image = hotelObj.Image || parsed.image || parsed.Image || parsed.photo || defaultImages[index % defaultImages.length];
+  const image = hotelObj.Image || parsed.image || parsed.Image || parsed.photo;
 
   const description = hotelObj.Adress
     ? `Located at ${hotelObj.Adress}`
-    : (parsed.description || `Experience premium accommodation and luxury service at ${name} in ${destination}.`);
+    : parsed.description || `Experience comfortable stay and premium service at ${name} in ${destination}.`;
 
-  const mealPlan = parsed.min_arrangement?.libelle ||
-    parsed.Price?.Boarding?.[0]?.Name ||
-    parsed.mealPlan ||
-    'Demi Pension';
+  const mealPlan = parsed.min_arrangement?.libelle || 'Demi Pension';
+  const roomType = parsed.min_arrangement?.chambre?.libelle || (index % 2 === 0 ? 'Chambre Double' : 'Suite');
+  const offerInfo = `${roomType} · ${mealPlan}`;
 
-  const roomType =
-    parsed.min_arrangement?.chambre?.libelle ||
-    parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name ||
-    parsed.roomType ||
-    (index % 2 === 0 ? 'Chambre Double' : 'Suite');
-
-  const offerInfo = parsed.min_arrangement?.chambre?.libelle && parsed.min_arrangement?.libelle
-    ? `${parsed.min_arrangement.chambre.libelle} · ${parsed.min_arrangement.libelle}`
-    : parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.Name
-    ? `${parsed.Price.Boarding[0].Pax[0].Rooms[0].Name} · ${mealPlan}`
-    : 'Real-time availability & direct confirmation rate.';
-
-  // Extract surDemande & disponible specifically from min_arrangement.chambre
-  const chambreObj = parsed.min_arrangement?.chambre;
-  let isAvailable = true;
-  let surDemandeVal: boolean | undefined = undefined;
-  let chambreDisponibleVal: string | number | undefined = undefined;
-
-  if (chambreObj) {
-    if (typeof chambreObj.surDemande === 'boolean') {
-      surDemandeVal = chambreObj.surDemande;
-      isAvailable = chambreObj.surDemande; // surDemande: true = Disponible directement
-    } else if (chambreObj.disponible !== undefined && chambreObj.disponible !== null) {
-      const d = chambreObj.disponible;
-      chambreDisponibleVal = d;
-      if (typeof d === 'boolean') {
-        isAvailable = d;
-      } else if (typeof d === 'number') {
-        isAvailable = d > 0;
-      } else if (typeof d === 'string') {
-        const num = parseInt(d, 10);
-        if (!isNaN(num)) {
-          isAvailable = num > 0;
-        } else {
-          isAvailable = d.toLowerCase() === 'true' || (d !== 'false' && d !== '0');
-        }
-      }
-      surDemandeVal = isAvailable;
-    }
-  } else if (typeof parsed.DataFiltre?.disponible === 'boolean') {
-    isAvailable = parsed.DataFiltre.disponible;
-    surDemandeVal = isAvailable;
-  } else if (typeof parsed.disponible === 'boolean') {
-    isAvailable = parsed.disponible;
-    surDemandeVal = isAvailable;
-  }
-
-  const availability = isAvailable ? 'Available Directly' : 'On Request';
-  const sharedPool = true;
-  const minStay = 1;
-
-  let rawCancellation = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.CancellationPolicy;
-  if (rawCancellation) {
-    rawCancellation = rawCancellation.replace(/<br\s*\/?>/gi, '. ');
-  }
-  const notes = rawCancellation || 'Free cancellation up to 48 hours prior to check-in.';
-  const hasFreeCancellation = Boolean(
-    rawCancellation
-      ? rawCancellation.toLowerCase().includes('free') || rawCancellation.toLowerCase().includes('gratuit') || rawCancellation.toLowerCase().includes('cancellation')
-      : true
-  );
-
-  const isPromo = index % 3 === 0 || price < 250;
-  const freeChild = index % 2 === 0 || offerInfo.toLowerCase().includes('enfant');
-
-  // Extract real etiquettes from raw API response object (supports array, object map, or string)
-  let rawEtiquettes = parsed.etiquettes || parsed.Etiquettes || parsed.etiquette || hotelObj.etiquettes || hotelObj.Etiquettes || parsed.etiquettesSaison;
-  let etiquettes: string[] = [];
-
-  if (rawEtiquettes && typeof rawEtiquettes === 'object') {
-    if (Array.isArray(rawEtiquettes)) {
-      etiquettes = rawEtiquettes
-        .map((item: any) => {
-          if (typeof item === 'string') return item;
-          return item?.libelle || item?._libelle || item?.label || item?.Name || '';
-        })
-        .filter((str: string) => Boolean(str && str.trim()));
-    } else {
-      // Handle object map e.g. { "1èr enfant -6 ans gratuit": { libelle: "..." }, "Sauver -12 %": { libelle: "..." } }
-      etiquettes = Object.entries(rawEtiquettes)
-        .map(([key, val]: [string, any]) => {
-          if (typeof val === 'string') return val;
-          if (val && typeof val === 'object') {
-            return val.libelle || val._libelle || val.label || key;
-          }
-          return key;
-        })
-        .filter((str: string) => Boolean(str && str.trim()));
-    }
-  } else if (typeof rawEtiquettes === 'string' && rawEtiquettes.trim()) {
-    etiquettes = [rawEtiquettes.trim()];
-  }
-
-  const possibleServices = ['Famille', 'Bord de Mer', 'Thalasso & Spa', 'Sport & Loisir', 'Romance', 'Luxe', 'Petit Prix', 'Toboggan'];
-  const services = [
-    possibleServices[index % possibleServices.length],
-    possibleServices[(index + 3) % possibleServices.length],
-  ];
+  const isAvailable = parsed.min_arrangement?.chambre?.surDemande ?? parsed.DataFiltre?.disponible ?? true;
+  const rawCancellation = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.CancellationPolicy;
+  const notes = rawCancellation ? rawCancellation.replace(/<br\s*\/?>/gi, '. ') : 'Free cancellation prior to check-in.';
 
   return {
-    id: String(id),
+    id,
     name,
     destination,
     stars,
@@ -243,186 +113,101 @@ export function normalizeHotel(item: any, index: number = 0, searchDestination: 
     image,
     description,
     offerInfo,
-    availability,
+    availability: isAvailable ? 'Available Directly' : 'On Request',
     disponible: isAvailable,
-    surDemande: surDemandeVal,
-    chambreDisponible: chambreDisponibleVal,
-    rembourssable: parsed.DataFiltre?.rembourssable,
-    source: parsed.Source || hotelObj.Source,
+    surDemande: isAvailable,
     mealPlan,
-    sharedPool,
-    minStay,
+    sharedPool: true,
+    minStay: 1,
     notes,
     roomType,
     cancellationPolicy: rawCancellation,
-    hasFreeCancellation,
-    isPromo,
-    freeChild,
-    etiquettes: etiquettes.length > 0 ? etiquettes : undefined,
-    services,
+    hasFreeCancellation: true,
+    isPromo: index % 3 === 0,
+    freeChild: index % 2 === 0,
     raw: parsed,
   };
 }
 
-export interface IproSearchResult {
-  hotels: Hotel[];
-  rawResponse: any;
-  countResults: number;
-}
-
 /**
- * Searches for hotel availability via OpenAPI endpoint /hotels/search
+ * Executes a hotel availability search against the backend API.
  */
-export async function getIproAvailability(searchDetailsParams: SearchDetailsParams): Promise<IproSearchResult> {
-  const nationality = String(searchDetailsParams.nationality || 'dz').toLowerCase();
-  const residence = String(searchDetailsParams.residence || 'dz').toLowerCase();
-  const pageNum = searchDetailsParams.page !== undefined ? searchDetailsParams.page : 0;
-  const destinationLabel = searchDetailsParams.cityName || searchDetailsParams.city || '';
+export async function getHotelsAvailability(searchParams: SearchDetailsParams): Promise<HotelSearchResult> {
+  const nationality = String(searchParams.nationality || 'dz').toLowerCase();
+  const residence = String(searchParams.residence || 'dz').toLowerCase();
 
-  // If fetching a specific page > 0, try GET /hotels/search/results?page=pageNum with session cookie
-  if (pageNum > 0) {
-    try {
-      const pageRes = await fetch(`${BASE_URL}/search/results?page=${pageNum}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-
-      if (pageRes.ok) {
-        let pageData = await pageRes.json();
-        if (typeof pageData === 'string') {
-          try {
-            pageData = JSON.parse(pageData);
-          } catch (e) {
-            console.warn('Could not parse pageData string:', e);
-          }
-        }
-
-        let rawList: any[] = [];
-        if (Array.isArray(pageData)) {
-          rawList = pageData;
-        } else if (pageData && Array.isArray(pageData.HotelSearch)) {
-          rawList = pageData.HotelSearch;
-        } else if (pageData && Array.isArray(pageData.results)) {
-          rawList = pageData.results;
-        } else if (pageData && Array.isArray(pageData.hotels)) {
-          rawList = pageData.hotels;
-        }
-
-        if (rawList.length > 0) {
-          const normalizedHotels = rawList
-            .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
-            .filter((h): h is Hotel => h !== null);
-
-          const countResults = pageData?.CountResults !== undefined ? pageData.CountResults : normalizedHotels.length;
-
-          return {
-            hotels: normalizedHotels,
-            rawResponse: pageData,
-            countResults,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('GET /hotels/search/results failed, falling back to POST /hotels/search:', err);
-    }
-  }
-
-  // Primary POST search initiation (or fallback)
   const payload = {
     SearchDetails: {
       BookingDetails: {
-        CheckIn: String(searchDetailsParams.checkIn || ''),
-        CheckOut: String(searchDetailsParams.checkOut || ''),
+        CheckIn: String(searchParams.checkIn || ''),
+        CheckOut: String(searchParams.checkOut || ''),
         Nationality: nationality,
         Residency: residence,
-        Nationalite: nationality,
-        Residence: residence,
-        City: String(searchDetailsParams.city || '34'),
+        City: String(searchParams.city || '34'),
       },
-      Rooms: (searchDetailsParams.rooms || [{ adults: 2, children: 0 }]).map((r) => ({
+      Rooms: (searchParams.rooms || [{ adults: 2, children: 0 }]).map((r) => ({
         Adult: String(r.adults ?? r.Adult ?? 2),
         children: Number(r.children ?? 0),
         Child: Array.isArray(r.Child) ? r.Child.map(String) : Array.isArray(r.childAges) ? r.childAges.map(String) : [],
       })),
-      GroupingHotel: searchDetailsParams.groupingHotel ?? true,
-      Product: String(searchDetailsParams.product || 'hotel'),
-      CombinationRooms: searchDetailsParams.combinationRooms ?? false,
-      BoardingByRooms: searchDetailsParams.boardingByRooms ?? false,
+      GroupingHotel: searchParams.groupingHotel ?? true,
+      Product: String(searchParams.product || 'hotel'),
+      CombinationRooms: false,
+      BoardingByRooms: false,
       Filters: {
-        Source: String(searchDetailsParams.source || 'all'),
+        Source: String(searchParams.source || 'all'),
       },
     },
   };
 
   try {
-    const response = await fetch(`${BASE_URL}/search`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Hotel search HTTP error: ${response.status}`);
+    let response;
+    try {
+      response = await apiClient.post('/search', payload);
+    } catch (err) {
+      response = await apiClient.post('/hotels/search', payload);
     }
 
-    const resData = await response.json();
-    let data = resData;
-
-    // Handle case where server responds with JSON string
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        console.warn('Could not parse response string:', e);
-      }
-    }
-
-    if (data && data.Erreur) {
+    const data = response.data;
+    if (data?.Erreur) {
       throw new Error(data.Erreur);
     }
 
-    let rawList: any[] = [];
-    if (Array.isArray(data)) {
-      rawList = data;
-    } else if (data && Array.isArray(data.HotelSearch)) {
-      rawList = data.HotelSearch;
-    } else if (data && Array.isArray(data.results)) {
-      rawList = data.results;
-    } else if (data && Array.isArray(data.hotels)) {
-      rawList = data.hotels;
-    }
+    const rawList: any[] = Array.isArray(data)
+      ? data
+      : data?.HotelSearch || data?.results || data?.hotels || [];
 
+    const destinationLabel = searchParams.cityName || searchParams.city || '';
     const normalizedHotels = rawList
       .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
       .filter((h): h is Hotel => h !== null);
 
-    const countResults = data?.CountResults !== undefined ? data.CountResults : normalizedHotels.length;
-
     return {
       hotels: normalizedHotels,
       rawResponse: data,
-      countResults,
+      countResults: data?.CountResults ?? normalizedHotels.length,
     };
-  } catch (err) {
-    console.error('Error executing getIproAvailability:', err);
-    throw err;
+  } catch (error) {
+    console.error('Hotel search error:', error);
+    throw error;
   }
 }
 
 /**
  * Service function to update hotel details / availability (used for mutations)
  */
-export async function updateHotelDetails(hotelId: string, updates: Partial<Hotel>): Promise<{ success: boolean; hotelId: string; updates: Partial<Hotel> }> {
-  await new Promise((resolve) => setTimeout(resolve, 600));
+export async function updateHotelDetails(
+  hotelId: string,
+  updates: Partial<Hotel>
+): Promise<{ success: boolean; hotelId: string; updates: Partial<Hotel> }> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
   return {
     success: true,
     hotelId,
     updates,
   };
 }
+
+// Backward compatibility export aliases
+export const getIproAvailability = getHotelsAvailability;
+export const parseClicnGoCities = parseCityString;
