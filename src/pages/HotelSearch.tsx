@@ -167,10 +167,45 @@ export default function HotelSearch() {
       rooms: form.rooms,
       page: 0,
       sessionId: undefined, // Omit to trigger initial POST search
+      filters: advancedFilters,
     };
 
     setActiveSearchParams(newSearchParams);
     setHasSearched(true);
+  };
+
+  const handleFilterChange = (newFilters: AdvancedFilterState) => {
+    setAdvancedFilters(newFilters);
+    setPage(1);
+    if (activeSearchParams) {
+      setActiveSearchParams((prev) =>
+        prev
+          ? {
+              ...prev,
+              page: 0,
+              filters: newFilters,
+              sessionId: currentSessionId || prev.sessionId,
+            }
+          : null
+      );
+    }
+  };
+
+  const handleResetFilters = () => {
+    setAdvancedFilters(initialAdvancedFilters);
+    setPage(1);
+    if (activeSearchParams) {
+      setActiveSearchParams((prev) =>
+        prev
+          ? {
+              ...prev,
+              page: 0,
+              filters: initialAdvancedFilters,
+              sessionId: currentSessionId || prev.sessionId,
+            }
+          : null
+      );
+    }
   };
 
   const handlePageChange = (newPage: number) => {
@@ -182,86 +217,27 @@ export default function HotelSearch() {
               ...prev,
               page: newPage - 1,
               sessionId: currentSessionId || prev.sessionId,
+              filters: advancedFilters,
             }
           : null
       );
     }
   };
 
-  // Filter & Sort Logic
-  const filteredHotels = useMemo(() => {
-    let list = hotels;
-
-    // Search query filter
-    if (advancedFilters.search.trim()) {
-      const q = advancedFilters.search.trim().toLowerCase();
-      list = list.filter((h) => h.name.toLowerCase().includes(q));
-    }
-
-    // Tarifs et disponibilités filters
-    if (advancedFilters.promosOnly) {
-      list = list.filter((h) => h.isPromo);
-    }
-    if (advancedFilters.freeChildOnly) {
-      list = list.filter((h) => h.freeChild);
-    }
-    if (advancedFilters.availableOnly) {
-      list = list.filter((h) => h.availability === 'Available Directly');
-    }
-    if (advancedFilters.freeCancellationOnly) {
-      list = list.filter((h) => h.hasFreeCancellation);
-    }
-
-    // Arrangements filter (Meal plan)
-    if (advancedFilters.arrangements.length > 0) {
-      list = list.filter((h) => advancedFilters.arrangements.includes(h.mealPlan));
-    }
-
-    // Catégorie filter (Star rating)
-    if (advancedFilters.categories.length > 0) {
-      list = list.filter((h) => advancedFilters.categories.includes(h.stars));
-    }
-
-    // Budget price filter
-    if (advancedFilters.maxPrice > 0) {
-      list = list.filter((h) => h.price <= advancedFilters.maxPrice);
-    }
-
-    // Room type filter
-    if (advancedFilters.roomTypes.length > 0) {
-      list = list.filter((h) => h.roomType && advancedFilters.roomTypes.includes(h.roomType));
-    }
-
-    // Services filter
-    if (advancedFilters.services.length > 0) {
-      list = list.filter(
-        (h) =>
-          Array.isArray(h.services) &&
-          advancedFilters.services.some((s) => h.services?.includes(s))
-      );
-    }
-
-    // Price sorting
-    list = [...list].sort((a, b) =>
-      advancedFilters.sortDir === 'asc' ? a.price - b.price : b.price - a.price
-    );
-
-    return list;
-  }, [hotels, advancedFilters]);
-
+  // Direct backend results (no client-side duplication)
   const totalCount = searchMeta?.countResults !== undefined && searchMeta.countResults > 0
     ? searchMeta.countResults
-    : filteredHotels.length;
+    : hotels.length;
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const pageItems = useMemo(() => {
-    if (filteredHotels.length > PAGE_SIZE) {
+    if (hotels.length > PAGE_SIZE) {
       const start = (page - 1) * PAGE_SIZE;
-      return filteredHotels.slice(start, start + PAGE_SIZE);
+      return hotels.slice(start, start + PAGE_SIZE);
     }
-    return filteredHotels;
-  }, [filteredHotels, page]);
+    return hotels;
+  }, [hotels, page]);
 
   const handleBookingSubmit = ({ hotel, searchParams, totalPrice, customer, travelInfo }: BookingSubmissionData) => {
     createOrder({
@@ -446,8 +422,9 @@ export default function HotelSearch() {
             <FilterSidebar
               hotels={hotels}
               filters={advancedFilters}
-              onFilterChange={(f) => { setAdvancedFilters(f); setPage(1); }}
-              onReset={() => { setAdvancedFilters(initialAdvancedFilters); setPage(1); }}
+              facets={searchResult?.facets}
+              onFilterChange={handleFilterChange}
+              onReset={handleResetFilters}
             />
           </div>
 
@@ -472,7 +449,7 @@ export default function HotelSearch() {
 
                 <SearchInput
                   value={advancedFilters.search}
-                  onChange={(v) => { setAdvancedFilters((f) => ({ ...f, search: v })); setPage(1); }}
+                  onChange={(v) => handleFilterChange({ ...advancedFilters, search: v })}
                   placeholder="Search hotel name…"
                 />
               </div>
@@ -483,16 +460,16 @@ export default function HotelSearch() {
                   active
                   direction={advancedFilters.sortDir}
                   onClick={() =>
-                    setAdvancedFilters((f) => ({
-                      ...f,
-                      sortDir: f.sortDir === 'asc' ? 'desc' : 'asc',
-                    }))
+                    handleFilterChange({
+                      ...advancedFilters,
+                      sortDir: advancedFilters.sortDir === 'asc' ? 'desc' : 'asc',
+                    })
                   }
                 />
 
                 {searchMeta && (
                   <div className="text-xs text-ink-500 bg-white px-3 py-2 rounded-lg border border-ink-900/5 shadow-xs font-mono">
-                    Offers: <span className="font-semibold text-navy-900 font-sans">{filteredHotels.length}</span> / {searchMeta.countResults}
+                    Offers: <span className="font-semibold text-navy-900 font-sans">{hotels.length}</span> / {searchMeta.countResults}
                   </div>
                 )}
               </div>
@@ -543,8 +520,9 @@ export default function HotelSearch() {
         <FilterSidebar
           hotels={hotels}
           filters={advancedFilters}
-          onFilterChange={(f) => { setAdvancedFilters(f); setPage(1); }}
-          onReset={() => { setAdvancedFilters(initialAdvancedFilters); setPage(1); }}
+          facets={searchResult?.facets}
+          onFilterChange={handleFilterChange}
+          onReset={handleResetFilters}
         />
       </Drawer>
 

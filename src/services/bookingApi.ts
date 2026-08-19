@@ -1,4 +1,4 @@
-import { Hotel, CityOption, SearchDetailsParams } from '../types';
+import { Hotel, CityOption, SearchDetailsParams, AdvancedFilterState } from '../types';
 import { apiClient } from './apiClient';
 
 export interface HotelSearchResult {
@@ -6,10 +6,68 @@ export interface HotelSearchResult {
   rawResponse: any;
   countResults: number;
   sessionId?: string;
+  facets?: any;
 }
 
 // Backward compatibility alias for IproSearchResult
 export type IproSearchResult = HotelSearchResult;
+
+/**
+ * Builds standard query parameters from advanced filter state
+ */
+export function buildFilterQueryParams(filters?: AdvancedFilterState, page?: number): Record<string, any> {
+  const params: Record<string, any> = {};
+  if (page !== undefined && page >= 0) {
+    params.page = page;
+  }
+  if (!filters) return params;
+
+  if (filters.search?.trim()) {
+    params.search = filters.search.trim();
+    params.query = filters.search.trim();
+  }
+  if (filters.categories && filters.categories.length > 0) {
+    params.stars = filters.categories.join(',');
+    params.etoiles = filters.categories.join(',');
+  }
+  if (filters.arrangements && filters.arrangements.length > 0) {
+    params.arrangements = filters.arrangements.join(',');
+    params.mealPlans = filters.arrangements.join(',');
+  }
+  if (filters.roomTypes && filters.roomTypes.length > 0) {
+    params.roomTypes = filters.roomTypes.join(',');
+  }
+  if (filters.services && filters.services.length > 0) {
+    params.services = filters.services.join(',');
+  }
+  if (filters.minPrice && filters.minPrice > 0) {
+    params.minPrice = filters.minPrice;
+  }
+  if (filters.maxPrice && filters.maxPrice > 0) {
+    params.maxPrice = filters.maxPrice;
+  }
+  if (filters.promosOnly) {
+    params.promo = true;
+    params.promosOnly = true;
+  }
+  if (filters.freeChildOnly) {
+    params.freeChild = true;
+  }
+  if (filters.availableOnly) {
+    params.disponible = true;
+    params.availableOnly = true;
+  }
+  if (filters.freeCancellationOnly) {
+    params.freeCancellation = true;
+    params.remboursable = true;
+  }
+  if (filters.sortDir) {
+    params.sort = filters.sortDir;
+    params.sortDir = filters.sortDir;
+  }
+
+  return params;
+}
 
 /**
  * Parses semicolon-separated city strings (e.g. "908_TN//Sousse, Tunisie;") into CityOption objects.
@@ -133,7 +191,7 @@ let storedSessionId: string | null = null;
 
 /**
  * Executes a hotel availability search against the backend API.
- * Performs POST /hotels/search (obtaining data.sessionId) and GET /hotels/search/{sessionId}/results?page=N for pagination.
+ * Performs POST /hotels/search (obtaining data.sessionId) and GET /hotels/search/{sessionId}/results?page=N for pagination & filtering.
  */
 export async function getHotelsAvailability(searchParams: SearchDetailsParams): Promise<HotelSearchResult> {
   const nationality = String(searchParams.nationality || 'dz').toLowerCase();
@@ -141,11 +199,12 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
   const pageNum = searchParams.page ?? 0;
   const activeSessionId = searchParams.sessionId || storedSessionId;
 
-  // Execute GET /hotels/search/{sessionId}/results when paginating (pageNum > 0)
-  if (pageNum > 0 && activeSessionId) {
+  // Execute GET /hotels/search/{sessionId}/results when paginating or filtering existing session
+  if ((pageNum > 0 || searchParams.filters) && activeSessionId) {
     try {
+      const queryParams = buildFilterQueryParams(searchParams.filters, pageNum);
       const response = await apiClient.get(`/hotels/search/${activeSessionId}/results`, {
-        params: { page: pageNum },
+        params: queryParams,
       });
 
       const data = response.data;
@@ -163,15 +222,17 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
         .filter((h): h is Hotel => h !== null);
 
       const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? normalizedHotels.length;
+      const facets = data?.searchResult?.DataFiltre ?? data?.DataFiltre ?? data?.facets ?? undefined;
 
       return {
         hotels: normalizedHotels,
         rawResponse: data,
         countResults: totalCount,
         sessionId: activeSessionId || undefined,
+        facets,
       };
     } catch (error) {
-      console.error('GET pagination error:', error);
+      console.error('GET results/filter error:', error);
       throw error;
     }
   }
@@ -197,6 +258,12 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
       BoardingByRooms: false,
       Filters: {
         Source: String(searchParams.source || 'all'),
+        ...(searchParams.filters?.search ? { Search: searchParams.filters.search } : {}),
+        ...(searchParams.filters?.categories?.length ? { Stars: searchParams.filters.categories } : {}),
+        ...(searchParams.filters?.arrangements?.length ? { Arrangements: searchParams.filters.arrangements } : {}),
+        ...(searchParams.filters?.maxPrice ? { MaxPrice: searchParams.filters.maxPrice } : {}),
+        ...(searchParams.filters?.availableOnly ? { AvailableOnly: true } : {}),
+        ...(searchParams.filters?.promosOnly ? { PromosOnly: true } : {}),
       },
     },
   };
@@ -226,12 +293,14 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
       .filter((h): h is Hotel => h !== null);
 
     const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? normalizedHotels.length;
+    const facets = data?.searchResult?.DataFiltre ?? data?.DataFiltre ?? data?.facets ?? undefined;
 
     return {
       hotels: normalizedHotels,
       rawResponse: data,
       countResults: totalCount,
       sessionId: storedSessionId || undefined,
+      facets,
     };
   } catch (error) {
     console.error('Hotel search error:', error);

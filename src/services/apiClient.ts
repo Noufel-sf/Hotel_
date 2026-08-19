@@ -4,7 +4,7 @@ import axios from 'axios';
  * Pre-configured Axios instance for Worldwide Hotel Search API requests
  */
 export const apiClient = axios.create({
-  baseURL: 'https://delivero-nh1o.onrender.com',
+  baseURL: 'https://delivero-62hy.onrender.com',
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',

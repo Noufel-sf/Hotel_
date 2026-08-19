@@ -7,6 +7,7 @@ interface FilterSidebarProps {
   filters: AdvancedFilterState;
   onFilterChange: (filters: AdvancedFilterState) => void;
   onReset: () => void;
+  facets?: any;
 }
 
 export default function FilterSidebar({
@@ -14,39 +15,47 @@ export default function FilterSidebar({
   filters,
   onFilterChange,
   onReset,
+  facets,
 }: FilterSidebarProps) {
-  // Compute dynamic counts for each filter option based on current searched hotels
+  // Compute counts from backend facets if available, or current search results
   const counts = useMemo(() => {
     const res = {
-      promos: 0,
-      freeChild: 0,
-      available: 0,
-      freeCancellation: 0,
-      arrangements: {} as Record<string, number>,
-      categories: {} as Record<number, number>,
-      roomTypes: {} as Record<string, number>,
-      services: {} as Record<string, number>,
+      promos: facets?.promos ?? 0,
+      freeChild: facets?.freeChild ?? 0,
+      available: facets?.available ?? 0,
+      freeCancellation: facets?.freeCancellation ?? 0,
+      arrangements: { ...(facets?.arrangements || {}) } as Record<string, number>,
+      categories: { ...(facets?.categories || facets?.etoiles || {}) } as Record<number, number>,
+      roomTypes: { ...(facets?.roomTypes || {}) } as Record<string, number>,
+      services: { ...(facets?.services || {}) } as Record<string, number>,
     };
 
+    // If backend didn't supply full facet breakdown, derive counts from returned hotels
     hotels.forEach((h) => {
-      if (h.isPromo) res.promos++;
-      if (h.freeChild) res.freeChild++;
-      if (h.availability === 'Available Directly') res.available++;
-      if (h.hasFreeCancellation) res.freeCancellation++;
+      if (!facets?.promos && h.isPromo) res.promos++;
+      if (!facets?.freeChild && h.freeChild) res.freeChild++;
+      if (!facets?.available && h.availability === 'Available Directly') res.available++;
+      if (!facets?.freeCancellation && h.hasFreeCancellation) res.freeCancellation++;
 
       // Arrangements (Meal plan)
       const mp = h.mealPlan || 'Demi Pension';
-      res.arrangements[mp] = (res.arrangements[mp] || 0) + 1;
+      if (!facets?.arrangements) {
+        res.arrangements[mp] = (res.arrangements[mp] || 0) + 1;
+      }
 
       // Category / Stars
-      res.categories[h.stars] = (res.categories[h.stars] || 0) + 1;
+      if (!facets?.categories && !facets?.etoiles) {
+        res.categories[h.stars] = (res.categories[h.stars] || 0) + 1;
+      }
 
       // Room Types
       const rt = h.roomType || 'Chambre Double';
-      res.roomTypes[rt] = (res.roomTypes[rt] || 0) + 1;
+      if (!facets?.roomTypes) {
+        res.roomTypes[rt] = (res.roomTypes[rt] || 0) + 1;
+      }
 
       // Services
-      if (Array.isArray(h.services)) {
+      if (!facets?.services && Array.isArray(h.services)) {
         h.services.forEach((s) => {
           res.services[s] = (res.services[s] || 0) + 1;
         });
@@ -54,17 +63,20 @@ export default function FilterSidebar({
     });
 
     return res;
-  }, [hotels]);
+  }, [hotels, facets]);
 
-  // Compute price bounds
+  // Compute price bounds from backend facets or hotels
   const priceBounds = useMemo(() => {
+    if (facets?.minPrice !== undefined && facets?.maxPrice !== undefined) {
+      return { min: Number(facets.minPrice), max: Number(facets.maxPrice) };
+    }
     if (hotels.length === 0) return { min: 0, max: 1000 };
     const prices = hotels.map((h) => h.price);
     return {
       min: Math.floor(Math.min(...prices)),
       max: Math.ceil(Math.max(...prices)),
     };
-  }, [hotels]);
+  }, [hotels, facets]);
 
   const toggleArrayItem = (list: string[], item: string) => {
     return list.includes(item) ? list.filter((i) => i !== item) : [...list, item];

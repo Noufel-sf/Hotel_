@@ -150,6 +150,7 @@ export interface SearchDetailsParams {
   source?: string;
   page?: number;
   sessionId?: string;
+  filters?: AdvancedFilterState;
 }
 
 export interface Toast {
