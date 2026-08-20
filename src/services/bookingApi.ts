@@ -187,24 +187,49 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
   };
 }
 
+/**
+ * Builds the exact JSON body for POST /hotels/search/{sessionId}/filter
+ */
+export function buildFilterPayload(filters?: AdvancedFilterState): Record<string, any> {
+  return {
+    search: filters?.search || '',
+    promosOnly: Boolean(filters?.promosOnly),
+    freeChildOnly: Boolean(filters?.freeChildOnly),
+    availableOnly: Boolean(filters?.availableOnly),
+    freeCancellationOnly: Boolean(filters?.freeCancellationOnly),
+    arrangements: Array.isArray(filters?.arrangements) ? filters.arrangements : [],
+    categories: Array.isArray(filters?.categories) ? filters.categories : [],
+    minPrice: Number(filters?.minPrice || 0),
+    maxPrice: Number(filters?.maxPrice || 0),
+    roomTypes: Array.isArray(filters?.roomTypes) ? filters.roomTypes : [],
+    services: Array.isArray(filters?.services) ? filters.services : [],
+    sortBy: filters?.sortBy || 'price',
+    sortDir: filters?.sortDir || 'asc',
+  };
+}
+
 let storedSessionId: string | null = null;
 
 /**
  * Executes a hotel availability search against the backend API.
- * Performs POST /hotels/search (obtaining data.sessionId) and GET /hotels/search/{sessionId}/results?page=N for pagination & filtering.
+ * Performs POST /hotels/search (obtaining data.sessionId) and POST /hotels/search/{sessionId}/filter?page=N&size=10 for pagination & filtering.
  */
 export async function getHotelsAvailability(searchParams: SearchDetailsParams): Promise<HotelSearchResult> {
   const nationality = String(searchParams.nationality || 'dz').toLowerCase();
   const residence = String(searchParams.residence || 'dz').toLowerCase();
   const pageNum = searchParams.page ?? 0;
+  const pageSize = searchParams.size ?? 10;
   const activeSessionId = searchParams.sessionId || storedSessionId;
 
-  // Execute GET /hotels/search/{sessionId}/results when paginating or filtering existing session
+  // Execute POST /hotels/search/{sessionId}/filter when paginating or filtering existing session
   if ((pageNum > 0 || searchParams.filters) && activeSessionId) {
     try {
-      const queryParams = buildFilterQueryParams(searchParams.filters, pageNum);
-      const response = await apiClient.get(`/hotels/search/${activeSessionId}`, {
-        params: queryParams,
+      const filterBody = buildFilterPayload(searchParams.filters);
+      const response = await apiClient.post(`/hotels/search/${activeSessionId}/filter`, filterBody, {
+        params: {
+          page: pageNum,
+          size: pageSize,
+        },
       });
 
       const data = response.data;
@@ -221,7 +246,7 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
         .map((item: any, idx: number) => normalizeHotel(item, idx, destinationLabel))
         .filter((h): h is Hotel => h !== null);
 
-      const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? normalizedHotels.length;
+      const totalCount = data?.searchResult?.CountResults ?? data?.CountResults ?? data?.totalCount ?? normalizedHotels.length;
       const facets = data?.searchResult?.DataFiltre ?? data?.DataFiltre ?? data?.facets ?? undefined;
 
       return {
@@ -232,7 +257,7 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
         facets,
       };
     } catch (error) {
-      console.error('GET results/filter error:', error);
+      console.error('POST /hotels/search/{sessionId}/filter error:', error);
       throw error;
     }
   }

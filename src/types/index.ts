@@ -109,6 +109,7 @@ export interface AdvancedFilterState {
   roomTypes: string[];
   services: string[];
   sortDir: 'asc' | 'desc';
+  sortBy?: string;
 }
 
 export interface HotelFilterState {
@@ -149,6 +150,7 @@ export interface SearchDetailsParams {
   boardingByRooms?: boolean;
   source?: string;
   page?: number;
+  size?: number;
   sessionId?: string;
   filters?: AdvancedFilterState;
 }

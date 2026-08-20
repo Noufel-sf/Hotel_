@@ -48,6 +48,7 @@ const initialAdvancedFilters: AdvancedFilterState = {
   maxPrice: 0,
   roomTypes: [],
   services: [],
+  sortBy: 'price',
   sortDir: 'asc',
 };
 
