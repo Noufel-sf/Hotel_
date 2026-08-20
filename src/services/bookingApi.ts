@@ -203,7 +203,7 @@ export async function getHotelsAvailability(searchParams: SearchDetailsParams): 
   if ((pageNum > 0 || searchParams.filters) && activeSessionId) {
     try {
       const queryParams = buildFilterQueryParams(searchParams.filters, pageNum);
-      const response = await apiClient.get(`/hotels/search/${activeSessionId}/results`, {
+      const response = await apiClient.get(`/hotels/search/${activeSessionId}`, {
         params: queryParams,
       });
 

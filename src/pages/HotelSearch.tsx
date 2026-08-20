@@ -102,6 +102,7 @@ export default function HotelSearch() {
 
   // Advanced Filters State
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilterState>(initialAdvancedFilters);
+  const [hotelSearchTerm, setHotelSearchTerm] = useState('');
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -115,6 +116,27 @@ export default function HotelSearch() {
       setCurrentSessionId(searchResult.sessionId);
     }
   }, [searchResult?.sessionId]);
+
+  // Debounce hotel name input so backend GET /hotels/search/{sessionId}?query=... is triggered smoothly
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (hotelSearchTerm !== advancedFilters.search) {
+        handleFilterChange({
+          ...advancedFilters,
+          search: hotelSearchTerm,
+        });
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [hotelSearchTerm, advancedFilters]);
+
+  // Keep local search input term in sync when filters are reset externally
+  useEffect(() => {
+    if (advancedFilters.search !== hotelSearchTerm) {
+      setHotelSearchTerm(advancedFilters.search);
+    }
+  }, [advancedFilters.search]);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -192,6 +214,7 @@ export default function HotelSearch() {
   };
 
   const handleResetFilters = () => {
+    setHotelSearchTerm('');
     setAdvancedFilters(initialAdvancedFilters);
     setPage(1);
     if (activeSearchParams) {
@@ -448,9 +471,10 @@ export default function HotelSearch() {
                 </button>
 
                 <SearchInput
-                  value={advancedFilters.search}
-                  onChange={(v) => handleFilterChange({ ...advancedFilters, search: v })}
+                  value={hotelSearchTerm}
+                  onChange={(v) => setHotelSearchTerm(v)}
                   placeholder="Search hotel name…"
+                  loading={loading}
                 />
               </div>
 
