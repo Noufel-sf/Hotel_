@@ -1,6 +1,29 @@
 export type MealPlan = 'No meals' | 'Breakfast' | 'Breakfast + Lunch' | 'Full board' | string;
 export type Availability = 'Available Directly' | 'On Request' | string;
 
+export interface RoomBoardingOption {
+  id: string;
+  code?: string;
+  label: string;
+  price: number;
+  originalPrice?: number;
+  discountPercent?: number;
+  cancellationPolicy?: string;
+}
+
+export interface RoomOffer {
+  id: string;
+  name: string;
+  available: boolean;
+  occupancy: number;
+  roomCount?: number;
+  discountPercent?: number;
+  originalPrice?: number;
+  boardings: RoomBoardingOption[];
+  selectedBoardingId?: string;
+  cancellationPolicy?: string;
+}
+
 export interface Hotel {
   id: string;
   name: string;
@@ -25,9 +48,13 @@ export interface Hotel {
   cancellationPolicy?: string;
   hasFreeCancellation?: boolean;
   isPromo?: boolean;
+  promoText?: string;
+  originalPrice?: number;
+  discountPercent?: number;
   freeChild?: boolean;
   etiquettes?: string[];
   services?: string[];
+  roomOffers?: RoomOffer[];
   raw?: any;
 }
 

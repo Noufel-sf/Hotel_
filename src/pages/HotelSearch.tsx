@@ -494,15 +494,17 @@ export default function HotelSearch() {
 
                 {searchMeta && (
                   <div className="text-xs text-ink-500 bg-white px-3 py-2 rounded-lg border border-ink-900/5 shadow-xs font-mono">
-                    Offers: <span className="font-semibold text-navy-900 font-sans">{hotels.length}</span> / {searchMeta.countResults}
+                    Offers: <span className="font-semibold text-navy-900 font-sans">
+                      {totalCount > 0 ? `${(page - 1) * PAGE_SIZE + 1}–${Math.min((page - 1) * PAGE_SIZE + hotels.length, totalCount)}` : 0}
+                    </span> / {totalCount}
                   </div>
                 )}
               </div>
             </div>
 
             {loading ? (
-              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                {Array.from({ length: 6 }).map((_, i) => <HotelCardSkeleton key={i} />)}
+              <div className="flex flex-col gap-6">
+                {Array.from({ length: 4 }).map((_, i) => <HotelCardSkeleton key={i} />)}
               </div>
             ) : pageItems.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-soft">
@@ -518,7 +520,7 @@ export default function HotelSearch() {
               </div>
             ) : (
               <>
-                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                <div className="flex flex-col gap-6">
                   {pageItems.map((hotel) => (
                     <HotelCard key={hotel.id} hotel={hotel} onOrder={setSelectedHotel} />
                   ))}

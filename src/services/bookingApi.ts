@@ -124,6 +124,42 @@ export async function searchCities(query: string): Promise<CityOption[]> {
 }
 
 /**
+ * Formats raw boarding codes or names into clean, standardized French arrangement labels
+ */
+export function formatBoardingLabel(rawName?: string, code?: string): string {
+  const val = (rawName || code || '').trim();
+  if (!val) return 'Logement Seul';
+  const lower = val.toLowerCase();
+
+  if (lower === 'ls' || lower === 'ro' || lower.includes('seul') || lower.includes('only') || lower.includes('room')) {
+    return 'Logement Seul';
+  }
+  if (lower === 'bb' || lower === 'lpd' || lower.includes('petit') || lower.includes('breakfast') || lower.includes('dejeuner') || lower.includes('déjeuner')) {
+    return 'Logement Petit Déjeuner';
+  }
+  if (lower === 'dp+' || lower === 'hb+' || lower.includes('demi pension +') || lower.includes('demi-pension +') || lower.includes('half board +')) {
+    return 'Demi pension +';
+  }
+  if (lower === 'dp' || lower === 'hb' || lower.includes('demi') || lower.includes('half')) {
+    return 'Demi Pension';
+  }
+  if (lower === 'pc+' || lower === 'fb+' || lower.includes('complète +') || lower.includes('complete +') || lower.includes('full board +')) {
+    return 'Pension complète +';
+  }
+  if (lower === 'pc' || lower === 'fb' || lower.includes('complète') || lower.includes('complete') || lower.includes('full')) {
+    return 'Pension complète';
+  }
+  if (lower === 'ais' || lower.includes('soft')) {
+    return 'all inclusive soft';
+  }
+  if (lower === 'ai' || lower === 'all' || lower.includes('all inclusive') || lower.includes('tout inclus') || lower.includes('all-inclusive')) {
+    return 'All Inclusive';
+  }
+
+  return rawName || code || 'Logement Seul';
+}
+
+/**
  * Normalizes raw backend API hotel objects into the application's clean Hotel type.
  */
 export function normalizeHotel(item: any, index: number = 0, defaultDestination: string = ''): Hotel | null {
@@ -140,9 +176,12 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
 
   const stars = Number(hotelObj.Category?.Star || parsed.DataSort?.etoiles || parsed.stars || 4);
   const price = Number(
+    parsed.min_arrangement?.BasePrice ??
+    parsed.min_arrangement?.basePrice ??
     parsed.DataSort?.prix ??
     parsed.min_arrangement?.price ??
     parsed.min_arrangement?.min_prices ??
+    parsed.BasePrice ??
     parsed.price ??
     150
   );
@@ -153,13 +192,201 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
     ? `Located at ${hotelObj.Adress}`
     : parsed.description || `Experience comfortable stay and premium service at ${name} in ${destination}.`;
 
-  const mealPlan = parsed.min_arrangement?.libelle || 'Demi Pension';
-  const roomType = parsed.min_arrangement?.chambre?.libelle || (index % 2 === 0 ? 'Chambre Double' : 'Suite');
+  const mealPlan = formatBoardingLabel(
+    parsed.min_arrangement?.libelle || parsed.min_arrangement?.arrangement || parsed.mealPlan,
+    parsed.min_arrangement?.code
+  );
+  const roomType = parsed.min_arrangement?.chambre?.libelle || parsed.roomType || 'Chambre Standard';
   const offerInfo = `${roomType} · ${mealPlan}`;
 
   const isAvailable = parsed.min_arrangement?.chambre?.surDemande ?? parsed.DataFiltre?.disponible ?? true;
-  const rawCancellation = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.CancellationPolicy;
-  const notes = rawCancellation ? rawCancellation.replace(/<br\s*\/?>/gi, '. ') : 'Free cancellation prior to check-in.';
+  const rawCancellation = parsed.Price?.Boarding?.[0]?.Pax?.[0]?.Rooms?.[0]?.CancellationPolicy || parsed.cancellation_policy;
+  const notes = rawCancellation ? rawCancellation.replace(/<br\s*\/?>/gi, '. ') : 'Annulation sans frais préalable selon conditions.';
+
+  // 1. Extract REAL etiquettes from the backend API response
+  const etiquettes: string[] = Array.isArray(parsed.etiquettes)
+    ? parsed.etiquettes
+    : Array.isArray(parsed.DataFiltre?.etiquettes)
+    ? parsed.DataFiltre.etiquettes
+    : [];
+
+  // 2. Extract REAL promo text from etiquettes or backend response
+  const realPromoEtiquette = etiquettes.find((e) => typeof e === 'string' && (e.includes('%') || e.toLowerCase().includes('promo') || e.toLowerCase().includes('sauver') || e.toLowerCase().includes('jusqu')));
+  const promoText = realPromoEtiquette || parsed.Promotions?.title || parsed.promoText || undefined;
+  const isPromo = Boolean(promoText || parsed.DataSort?.promo || parsed.isPromo);
+
+  // Extract real discount percentage if present in API response
+  let discountPercent: number | undefined = undefined;
+  if (promoText) {
+    const match = promoText.match(/-?\s*(\d+(?:[.,]\d+)?)\s*%/);
+    if (match) {
+      discountPercent = parseFloat(match[1].replace(',', '.'));
+    }
+  } else if (parsed.DataSort?.remise) {
+    discountPercent = Number(parsed.DataSort.remise);
+  }
+
+  const originalPrice = discountPercent && discountPercent > 0 && discountPercent < 100
+    ? Math.round(price / (1 - discountPercent / 100))
+    : parsed.prix_barre ? Number(parsed.prix_barre) : undefined;
+
+  // 3. Dynamically extract REAL room offers & boardings from API response
+  const realBoardingsFromApi: any[] = Array.isArray(parsed.Price?.Boarding)
+    ? parsed.Price.Boarding
+    : Array.isArray(parsed.arrangements)
+    ? parsed.arrangements
+    : [];
+
+  const realChambresFromApi: any[] = Array.isArray(parsed.chambres)
+    ? parsed.chambres
+    : [];
+
+  let roomOffers: any[] = [];
+  let extractedQuantity: string | number | undefined = undefined;
+
+  if (realBoardingsFromApi.length > 0) {
+    // The API returns Price.Boarding[] where each Boarding has Pax[0].Rooms[]
+    // Group all boardings by Room Name
+    const roomMap = new Map<string, {
+      name: string;
+      available: boolean;
+      occupancy: number;
+      boardings: any[];
+      cancellationPolicy?: string;
+    }>();
+
+    realBoardingsFromApi.forEach((b: any, bIdx: number) => {
+      const rawBoardingLabel = b.Name || b.name || b.Libelle || b.libelle || b.BoardingName || b.Code || b.code;
+      const formattedBoardingLabel = formatBoardingLabel(rawBoardingLabel, b.Code || b.code);
+      const boardingId = String(b.Id || b.Code || b.code || `board-${bIdx}`);
+
+      const paxRooms: any[] = Array.isArray(b.Pax?.[0]?.Rooms)
+        ? b.Pax[0].Rooms
+        : Array.isArray(b.Rooms)
+        ? b.Rooms
+        : [b];
+
+      paxRooms.forEach((r: any) => {
+        const rName = r.Name || r.name || r.Libelle || r.libelle || roomType || 'Chambre Standard';
+        const rPrice = Number(r.BasePrice ?? r.Price ?? r.basePrice ?? r.prix ?? r.Prix ?? r.price ?? price);
+        const rOnRequest = r.OnRequest !== undefined ? Boolean(r.OnRequest) : (isAvailable ? false : true);
+        const rAvailable = !rOnRequest;
+        const rCancellation = r.CancellationPolicy || notes;
+
+        if (r.Quantity) {
+          extractedQuantity = r.Quantity;
+        }
+
+        const boardingOption = {
+          id: `${boardingId}-${rName}`,
+          label: formattedBoardingLabel,
+          price: rPrice,
+          originalPrice: discountPercent ? Math.round(rPrice / (1 - discountPercent / 100)) : undefined,
+          discountPercent: discountPercent,
+          cancellationPolicy: rCancellation,
+        };
+
+        if (!roomMap.has(rName)) {
+          roomMap.set(rName, {
+            name: `1 x ${rName}`,
+            available: rAvailable,
+            occupancy: Number(b.Pax?.[0]?.Adult || 2),
+            boardings: [boardingOption],
+            cancellationPolicy: rCancellation,
+          });
+        } else {
+          roomMap.get(rName)!.boardings.push(boardingOption);
+        }
+      });
+    });
+
+    if (roomMap.size > 0) {
+      roomOffers = Array.from(roomMap.entries()).map(([_, rData], rIdx) => ({
+        id: `${id}-room-${rIdx}`,
+        name: rData.name,
+        available: rData.available,
+        occupancy: rData.occupancy,
+        discountPercent,
+        originalPrice,
+        cancellationPolicy: rData.cancellationPolicy || notes,
+        boardings: rData.boardings,
+      }));
+    }
+  }
+
+  // Fallback to realChambresFromApi if roomOffers not yet populated
+  if (roomOffers.length === 0 && realChambresFromApi.length > 0) {
+    roomOffers = realChambresFromApi.map((c: any, cIdx: number) => {
+      const cName = c.libelle || c.name || `Chambre ${cIdx + 1}`;
+      const cAvail = c.surDemande !== undefined ? Boolean(c.surDemande) : isAvailable;
+      const cPrice = Number(c.prix ?? c.price ?? c.Price ?? price);
+      const cArrangements = Array.isArray(c.arrangements) ? c.arrangements : [];
+
+      const boardings = cArrangements.length > 0
+        ? cArrangements.map((a: any, aIdx: number) => ({
+            id: String(a.code || a.id || `a-${aIdx}`),
+            label: formatBoardingLabel(a.libelle || a.name || a.Name, a.code),
+            price: Number(a.prix ?? a.price ?? a.Price ?? cPrice),
+            originalPrice: discountPercent ? Math.round(Number(a.prix ?? a.price ?? a.Price ?? cPrice) / (1 - discountPercent / 100)) : undefined,
+            discountPercent,
+            cancellationPolicy: a.cancellation_policy || notes,
+          }))
+        : [
+            {
+              id: 'ls',
+              label: mealPlan,
+              price: cPrice,
+              originalPrice: originalPrice,
+              discountPercent: discountPercent,
+              cancellationPolicy: notes,
+            },
+          ];
+
+      return {
+        id: `${id}-chambre-${cIdx}`,
+        name: `1 x ${cName}`,
+        available: cAvail,
+        occupancy: Number(c.occupancy || 2),
+        discountPercent,
+        originalPrice,
+        cancellationPolicy: notes,
+        boardings,
+      };
+    });
+  }
+
+  // Final fallback to single real room from min_arrangement
+  if (roomOffers.length === 0) {
+    roomOffers = [
+      {
+        id: `${id}-room-main`,
+        name: `1 x ${roomType}`,
+        available: Boolean(isAvailable),
+        occupancy: 2,
+        discountPercent,
+        originalPrice,
+        cancellationPolicy: notes,
+        boardings: [
+          {
+            id: 'board-main',
+            label: mealPlan,
+            price: price,
+            originalPrice: originalPrice,
+            discountPercent: discountPercent,
+            cancellationPolicy: notes,
+          },
+        ],
+      },
+    ];
+  }
+
+  // Extract hotel inventory source directly from API response root (e.g. "Ipro", "ClicnGo", "Eazy2go")
+  const source = parsed.Source ||
+    parsed.source ||
+    hotelObj.Source ||
+    hotelObj.source;
+
+  const chambreDisponible = extractedQuantity || parsed.min_arrangement?.chambre?.disponible || parsed.DataFiltre?.chambreDisponible;
 
   return {
     id,
@@ -174,6 +401,8 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
     availability: isAvailable ? 'Available Directly' : 'On Request',
     disponible: isAvailable,
     surDemande: isAvailable,
+    chambreDisponible,
+    source,
     mealPlan,
     sharedPool: true,
     minStay: 1,
@@ -181,8 +410,13 @@ export function normalizeHotel(item: any, index: number = 0, defaultDestination:
     roomType,
     cancellationPolicy: rawCancellation,
     hasFreeCancellation: true,
-    isPromo: index % 3 === 0,
+    isPromo,
+    promoText,
+    originalPrice,
+    discountPercent,
     freeChild: index % 2 === 0,
+    etiquettes,
+    roomOffers,
     raw: parsed,
   };
 }
